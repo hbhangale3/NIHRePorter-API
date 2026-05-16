@@ -1,0 +1,39 @@
+query:
+  fiscal_years: [2024, 2025]
+  broad_keywords:
+    - health disparities
+    - technology
+  text_search_field: all
+  text_search_operator: or
+  
+  # AI-powered keyword expansion (optional)
+  ai_expansion:
+    enabled: true  # Set to true to enable AI expansion
+    openai_api_key: null  # Set via OPENAI_API_KEY env var, or paste your key here
+    model: gpt-4o-mini  # Options: gpt-4o-mini, gpt-4o, gpt-3.5-turbo
+    max_expansions_per_keyword: 5  # Max synonyms/variations per keyword
+    context: "biomedical research and health disparities"  # Domain context for expansion
+
+topics:
+  - name: AI + Health Disparities
+    include_any:
+      - ai
+      - artificial intelligence
+      - machine learning
+    include_all: []
+    exclude_any:
+      - mouse
+      - mice
+      - rat
+    co_require_groups:
+      - [health disparities, equity, inequity]
+      - [clinical, community, public health]
+
+  - name: Telehealth Equity
+    include_any:
+      - telehealth
+      - telemedicine
+    include_all: []
+    exclude_any: []
+    co_require_groups:
+      - [disparities, equity, access]

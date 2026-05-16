@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class TopicConfig(BaseModel):
+    name: str
+    include_any: list[str] = Field(default_factory=list)
+    include_all: list[str] = Field(default_factory=list)
+    exclude_any: list[str] = Field(default_factory=list)
+    co_require_groups: list[list[str]] = Field(default_factory=list)
+
+
+class AIExpansionConfig(BaseModel):
+    enabled: bool = False
+    openai_api_key: str | None = None
+    model: str = "gpt-4o-mini"
+    max_expansions_per_keyword: int = 5
+    context: str = "biomedical research and health disparities"
+
+
+class QueryConfig(BaseModel):
+    fiscal_years: list[int] = Field(default_factory=list)
+    broad_keywords: list[str] = Field(default_factory=list)
+    text_search_field: str = "all"
+    text_search_operator: Literal["and", "or"] = "and"
+    ai_expansion: AIExpansionConfig = Field(default_factory=AIExpansionConfig)
+
+
+class AppConfig(BaseModel):
+    query: QueryConfig
+    topics: list[TopicConfig]
+
+
+class RunRequest(BaseModel):
+    config_yaml: str
+    max_pages: int | None = None
+
+    @field_validator("max_pages")
+    @classmethod
+    def cap_max_pages(cls, v: int | None) -> int | None:
+        if v is not None and v > 200:
+            return 200
+        return v
+
+
+class RunStatus(BaseModel):
+    run_id: str
+    status: Literal["queued", "running", "completed", "failed"]
+    message: str | None = None
+    progress: dict[str, Any] = Field(default_factory=dict)
+    keyword_expansions: dict[str, list[str]] | None = None
+
+
+class PIOutreachRow(BaseModel):
+    pi_name: str | None = None
+    pi_first_name: str | None = None
+    pi_last_name: str | None = None
+    pi_email: str | None = None
+
+    organization_name: str | None = None
+    organization_city: str | None = None
+    organization_state: str | None = None
+    organization_country: str | None = None
+
+    admin_ic: str | None = None
+    fiscal_years: list[int] = Field(default_factory=list)
+    project_count: int = 0
+
+    matched_topics: list[str] = Field(default_factory=list)
+    sample_project_titles: list[str] = Field(default_factory=list)
+    project_numbers: list[str] = Field(default_factory=list)
+    project_abstracts: list[str] = Field(default_factory=list)
+    project_terms: list[str] = Field(default_factory=list)
+
+    project_ids: list[str] = Field(default_factory=list)
+    project_urls: list[str] = Field(default_factory=list)
+
+    pi_profile_id: str | None = None
+    total_funding_amount: float | None = None
+    project_start_date: str | None = None
+    project_end_date: str | None = None
