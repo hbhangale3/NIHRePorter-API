@@ -1,63 +1,312 @@
-# NIH RePORTER PI outreach list builder
+# NIH RePORTER PI Finder
 
-React website + FastAPI backend to build an updatable outreach list for NIH projects on technology and health disparities.
+A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines a broad NIH RePORTER API query with strict local topic-matching rules to produce a clean, deduplicated outreach list — exportable as CSV.
 
-## What it does
+---
 
-- Queries NIH RePORTER API (backend only)
-- **🤖 AI-powered keyword expansion** (optional) - automatically expands search terms with synonyms, acronyms, and variations
-- Pagination handling
-- Rate limiting (~1 request/sec) + disk caching
-- YAML-configured two-stage filtering
-  - Stage 1: broad NIH query (FY + broad keywords)
-  - Stage 2: strict local topic matching per named topics
-- PI + institution deduplication and aggregation
-- CSV export with traceability fields
+## Architecture Overview
 
-## Project structure
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Browser (React + Vite)                                         │
+│  • YAML editor  • Status polling  • Paginated results table     │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ /api/* (Vite proxy → :8000)
+┌───────────────────────────▼─────────────────────────────────────┐
+│  FastAPI Backend (:8000)                                        │
+│                                                                 │
+│  POST /api/runs ──► Background task                             │
+│                         │                                       │
+│              ┌──────────▼──────────┐                           │
+│              │  Stage 1: NIH Query │  httpx + diskcache        │
+│              │  fiscal_years +     │  30-day cache             │
+│              │  broad_keywords     │  ~1 req/sec rate limit    │
+│              └──────────┬──────────┘                           │
+│                         │ ~500–5000 raw projects                │
+│              ┌──────────▼──────────┐                           │
+│              │  Stage 2: Topic     │  Pure Python              │
+│              │  Matching (local)   │  include_any / all /      │
+│              │                     │  exclude_any /            │
+│              │                     │  co_require_groups        │
+│              └──────────┬──────────┘                           │
+│                         │ filtered & deduplicated PIs           │
+│              ┌──────────▼──────────┐                           │
+│              │  Aggregation        │  Group by core_project_num│
+│              │  & CSV export       │  Pandas → CSV             │
+│              └─────────────────────┘                           │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-- `backend/` FastAPI + CLI runner
-- `frontend/` React + Vite UI
+### Why two stages?
+
+The NIH RePORTER API only supports broad keyword search. A single keyword like `"AI"` returns thousands of unrelated grants (lab equipment, AI acronyms in other fields, etc.). Stage 2 applies precise, configurable topic rules **locally** — no extra API calls — to filter down to exactly what you want.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite 5, js-yaml |
+| Backend | FastAPI, Uvicorn, Python 3.13 |
+| HTTP client | httpx (async) |
+| Caching | diskcache (SQLite-backed, 30-day TTL) |
+| Data export | Pandas → CSV |
+| AI features | OpenAI API (gpt-4o-mini default) |
+| Config format | YAML |
+
+---
+
+## Features
+
+- **Two-stage filtering** — broad NIH API query + strict local topic matching
+- **AI keyword expansion** — automatically expands search terms with synonyms, acronyms, and variations (optional, requires OpenAI API key)
+- **AI config suggestion** — describe a research topic in plain English; the app generates `broad_keywords` and `topic_terms` for you
+- **PI deduplication** — groups projects by `core_project_num` (year-invariant), derives PI info from the most recent fiscal year
+- **Multi-year aggregation** — collects funding, dates, and abstracts across all fiscal years per project
+- **CSV export** — 22-column export with full traceability (abstracts, terms, project URLs)
+- **30-day disk cache** — avoids re-querying the NIH API for repeated searches
+- **Rate limiting** — ~1 req/sec to stay within NIH API limits
+
+---
+
+## Project Structure
+
+```
+.
+├── backend/
+│   ├── requirements.txt
+│   ├── config.example.yaml          # Annotated config template
+│   └── app/
+│       ├── main.py                  # FastAPI routes
+│       ├── runner.py                # Pipeline orchestrator
+│       ├── reporter_client.py       # NIH API client (async, cached)
+│       ├── processor.py             # Topic matching + PI aggregation
+│       ├── topic_matcher.py         # include/exclude/co_require logic
+│       ├── keyword_expander.py      # OpenAI keyword expansion
+│       ├── keyword_suggester.py     # OpenAI config suggestion
+│       ├── models.py                # Pydantic data models
+│       ├── run_store.py             # In-memory run state store
+│       ├── csv_export.py            # Pandas CSV generation
+│       ├── cache.py                 # diskcache wrapper
+│       ├── settings.py              # Env-var settings (pydantic-settings)
+│       ├── config_loader.py         # YAML → AppConfig parser
+│       ├── utils.py                 # Text normalization helpers
+│       └── cli.py                   # CLI batch runner
+└── frontend/
+    ├── vite.config.js               # Proxies /api → localhost:8000
+    └── src/
+        ├── App.jsx                  # Main UI component
+        ├── main.jsx                 # React entry point
+        └── styles.css               # Dark theme
+```
+
+---
 
 ## Quickstart
 
-### 1) Backend
+### 1. Backend
 
-```
+```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 2) Frontend
+### 2. Frontend
 
-```
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open the URL Vite prints (typically http://localhost:5173). The UI calls the backend at `/api/*` via proxy.
+Open the URL Vite prints (typically **http://localhost:5173**).
 
-## Config format (YAML)
+> The Vite dev server proxies all `/api/*` requests to the FastAPI backend at `:8000`, so no CORS configuration is needed during development.
 
-See `backend/config.example.yaml` for a complete example.
+---
 
-Each topic supports:
+## Configuration (YAML)
 
-- `include_any` (at least one term must match)
-- `include_all` (all terms must match; optional)
-- `exclude_any` (any term match disqualifies)
-- `co_require_groups` (for each group, at least one term must match)
+Copy `backend/config.example.yaml` as your starting point. The config has two sections:
 
-A project may match multiple topics; `matched_topics` is retained for traceability.
+### `query` — what to fetch from NIH
 
-## AI Keyword Expansion
+```yaml
+query:
+  fiscal_years: [2023, 2024, 2025]   # Which fiscal years to search
+  broad_keywords:                     # Keywords sent to NIH API (Stage 1)
+    - health disparities
+    - artificial intelligence
+  text_search_field: all              # 'all' | 'title' | 'abstract' | 'terms'
+  text_search_operator: or            # 'or' (broader) | 'and' (stricter)
 
-To improve search recall, enable AI-powered keyword expansion in your config. See **[AI_EXPANSION.md](./AI_EXPANSION.md)** for:
-- Setup instructions
-- Cost estimates
-- Configuration options
-- Best practices
+  # Optional: AI-powered keyword expansion
+  ai_expansion:
+    enabled: false
+    openai_api_key: null              # Or set OPENAI_API_KEY env var
+    model: gpt-4o-mini
+    max_expansions_per_keyword: 5
+    context: "biomedical research and health disparities"
+```
+
+### `topics` — how to filter locally (Stage 2)
+
+Each project's title + abstract + terms are matched against every topic. A project passes a topic when:
+
+| Rule | Meaning |
+|---|---|
+| `include_any` | At least one term must appear in the text |
+| `include_all` | Every term must appear (optional, additive) |
+| `exclude_any` | If any term appears, the project is rejected |
+| `co_require_groups` | Each sub-list must have at least one match |
+
+```yaml
+topics:
+  - name: AI + Health Disparities
+    include_any:
+      - artificial intelligence
+      - machine learning
+      - deep learning
+    exclude_any:
+      - mouse
+      - mice
+      - rat
+      - in vitro
+    co_require_groups:
+      - [health disparities, equity, inequity, underserved]
+      - [clinical, community, public health, population]
+
+  - name: Telehealth Equity
+    include_any:
+      - telehealth
+      - telemedicine
+      - remote monitoring
+    co_require_groups:
+      - [disparities, equity, access, rural, underserved]
+```
+
+A project can match multiple topics — the `matched_topics` field records which ones for traceability.
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Liveness check |
+| `POST` | `/api/runs` | Start a pipeline run (async) |
+| `GET` | `/api/runs/{run_id}` | Poll run status & keyword expansions |
+| `GET` | `/api/runs/{run_id}/results` | Paginated results (`offset`, `limit`) |
+| `GET` | `/api/runs/{run_id}/export.csv` | Download full CSV |
+| `POST` | `/api/suggest-keywords` | AI topic → config suggestion |
+
+### POST `/api/runs` payload
+
+```json
+{
+  "config_yaml": "query:\n  fiscal_years: [2024]\n  ...",
+  "max_pages": 10
+}
+```
+
+`max_pages` controls how many 500-project pages to fetch from the NIH API (capped at 200 server-side). At ~1 req/sec, 10 pages ≈ 10 seconds; 100 pages ≈ 100 seconds.
+
+---
+
+## Environment Variables
+
+All variables are prefixed with `OUTREACH_`:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OUTREACH_REPORTER_API_BASE_URL` | `https://api.reporter.nih.gov/v2` | NIH API base URL |
+| `OUTREACH_REPORTER_RATE_LIMIT_SECONDS` | `1.0` | Seconds between NIH API requests |
+| `OUTREACH_CACHE_DIR` | `.cache` | Disk cache directory |
+| `OUTREACH_CACHE_TTL_SECONDS` | `2592000` (30 days) | Cache TTL |
+| `OPENAI_API_KEY` | — | OpenAI API key for AI features |
+
+Create a `.env` file in the `backend/` directory or export these before starting the server.
+
+---
+
+## CSV Export Columns
+
+| Column | Description |
+|---|---|
+| `pi_name` | Full name of contact PI |
+| `pi_first_name` / `pi_last_name` | Split name components |
+| `pi_email` | Contact email (often absent in NIH data) |
+| `organization_name` | Institution name |
+| `organization_city/state/country` | Institution location |
+| `admin_ic` | NIH Institute/Center abbreviation (e.g. `NCI`, `NIMHD`) |
+| `fiscal_years` | All fiscal years this project appeared in (semicolon-separated) |
+| `project_count` | Number of fiscal-year records for this core project |
+| `matched_topics` | Which topic rules matched (semicolon-separated) |
+| `sample_project_titles` | Up to 3 project titles |
+| `project_numbers` | Full project numbers (semicolon-separated) |
+| `project_abstracts` | All abstracts across fiscal years |
+| `project_terms` | NIH MeSH-style terms |
+| `project_ids` | Application IDs (links to NIH RePORTER) |
+| `project_urls` | Direct URLs to NIH RePORTER project pages |
+| `pi_profile_id` | NIH PI profile ID |
+| `total_funding_amount` | Sum of award amounts across fiscal years |
+| `project_start_date` | Earliest project start date |
+| `project_end_date` | Latest project end date |
+
+---
+
+## CLI Batch Mode
+
+Run searches without the web UI:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m app.cli \
+  --config config.example.yaml \
+  --out-dir output/2025 \
+  --max-pages 50
+```
+
+Output files:
+- `results.json` — full PI outreach rows
+- `summary.json` — counts by topic, year, IC
+- `keyword_expansions.json` — AI expansion mapping
+- `outreach.csv` — the final export
+
+---
+
+## AI Features
+
+### Keyword Expansion
+
+When `ai_expansion.enabled: true`, the backend sends each `broad_keyword` to OpenAI and gets back synonyms, acronyms, and related terms. These replace the original keywords in the NIH API query, improving recall.
+
+Example: `"health disparities"` might expand to `["health disparities", "health equity", "health inequities", "underserved populations", "minority health"]`.
+
+Expansions are cached for 30 days so the same keyword set is never re-sent to OpenAI.
+
+### Config Suggestion
+
+Click **🤖 Suggest Keywords** in the UI, describe your research topic in plain English, and the app generates a ready-to-use set of `broad_keywords` and `topic_terms` using OpenAI. The result can be applied to the YAML editor in one click.
+
+Requires an OpenAI API key set in the YAML config or via `OPENAI_API_KEY` env var.
+
+---
+
+## Development Notes
+
+- The NIH RePORTER API returns snake_case field names. The code handles multiple field name variants for robustness (e.g. `org_name` vs `organization_name`).
+- The `core_project_num` field is the year-invariant project identifier (e.g. `R01CA123456`). The same project number appears once per fiscal year; the processor groups these and picks the most recent year for PI/org contact info.
+- Disk cache keys are SHA-256 hashes of the request payload, so any change to the query (different fiscal years, keywords, etc.) produces a cache miss.
+- The run store is in-memory; runs are lost on server restart. For persistent storage, replace `run_store.py` with a SQLite or Redis backend.
+
+---
+
+## License
+
+MIT
