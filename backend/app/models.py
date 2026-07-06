@@ -57,6 +57,13 @@ class EmailEnrichmentConfig(BaseModel):
     require_high_confidence: bool = False
 
 
+class ProfileEnrichmentConfig(BaseModel):
+    enabled: bool = False
+    max_researchers: int = 50
+    sources: list[str] = Field(default_factory=lambda: ["nih_reporter", "pubmed", "orcid", "institution_web"])
+    timeout_seconds: int = 10
+
+
 class QueryConfig(BaseModel):
     research_question: str | None = None
     fiscal_years: list[int] = Field(default_factory=list)
@@ -68,6 +75,7 @@ class QueryConfig(BaseModel):
     ai_expansion: AIExpansionConfig = Field(default_factory=AIExpansionConfig)
     multi_query_retrieval: MultiQueryRetrievalConfig = Field(default_factory=MultiQueryRetrievalConfig)
     email_enrichment: EmailEnrichmentConfig = Field(default_factory=EmailEnrichmentConfig)
+    profile_enrichment: ProfileEnrichmentConfig = Field(default_factory=ProfileEnrichmentConfig)
 
 
 class AppConfig(BaseModel):
@@ -107,6 +115,17 @@ class PIOutreachRow(BaseModel):
     email_source_url: str | None = None
     email_status: str | None = None
     email_notes: str | None = None
+    researcher_profile_status: str | None = None
+    researcher_profile_summary: str | None = None
+    researcher_profile_confidence: str | None = None
+    faculty_profile_url: str | None = None
+    orcid_url: str | None = None
+    pubmed_author_url: str | None = None
+    nih_reporter_pi_url: str | None = None
+    google_scholar_query_url: str | None = None
+    profile_source_urls: list[str] = Field(default_factory=list)
+    profile_notes: str | None = None
+    outreach_recommendation: str | None = None
 
     organization_name: str | None = None
     organization_city: str | None = None

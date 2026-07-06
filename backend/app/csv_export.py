@@ -17,6 +17,17 @@ CSV_COLUMNS = [
     "email_source_url",
     "email_status",
     "email_notes",
+    "researcher_profile_status",
+    "researcher_profile_summary",
+    "researcher_profile_confidence",
+    "faculty_profile_url",
+    "orcid_url",
+    "pubmed_author_url",
+    "nih_reporter_pi_url",
+    "google_scholar_query_url",
+    "profile_source_urls",
+    "profile_notes",
+    "outreach_recommendation",
     "organization_name",
     "organization_city",
     "organization_state",
@@ -75,6 +86,7 @@ def rows_to_csv_bytes(rows: list[PIOutreachRow]) -> bytes:
             "matched_dimensions",
             "score_breakdown_entries",
             "mesh_matches",
+            "profile_source_urls",
         ]:
             if isinstance(d.get(k), list):
                 d[k] = "; ".join([str(x) for x in d[k]])

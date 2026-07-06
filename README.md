@@ -1,6 +1,6 @@
 # NIH RePORTER PI Finder
 
-A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines broad NIH RePORTER retrieval, local topic-matching rules, explainable relevance ranking, and optional public email enrichment to produce a clean outreach list — exportable as CSV.
+A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines broad NIH RePORTER retrieval, local topic-matching rules, explainable relevance ranking, optional public email enrichment, and optional researcher profile building to produce a clean outreach list — exportable as CSV.
 
 ---
 
@@ -67,7 +67,8 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 - **Multi-year aggregation** — collects funding, dates, and abstracts across all fiscal years per project
 - **Explainable relevance ranking** — scores each outreach candidate from 0-100 with matched dimensions, semantic similarity, MeSH overlap, and human-readable reasoning
 - **Optional email enrichment** — best-effort public email discovery for top-ranked researchers using conservative institution/PubMed/ORCID lookups
-- **CSV export** — ranked export with traceability fields, reasoning, matched concepts, abstracts, terms, project URLs, and email confidence metadata
+- **Optional profile enrichment** — builds NIH RePORTER, PubMed, ORCID, Google Scholar, and faculty-profile search links plus outreach recommendations
+- **CSV export** — ranked export with traceability fields, reasoning, matched concepts, abstracts, terms, project URLs, email confidence metadata, and outreach-ready profile links
 - **30-day disk cache** — avoids re-querying the NIH API for repeated searches
 - **Rate limiting** — ~1 req/sec to stay within NIH API limits
 
@@ -91,7 +92,7 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 │       ├── keyword_suggester.py     # OpenAI config suggestion
 │       ├── models.py                # Pydantic data models
 │       ├── run_store.py             # In-memory run state store
-│       ├── enrichment/              # Optional public email enrichment
+│       ├── enrichment/              # Optional email + profile enrichment
 │       ├── csv_export.py            # Pandas CSV generation
 │       ├── cache.py                 # diskcache wrapper
 │       ├── settings.py              # Env-var settings (pydantic-settings)
@@ -152,7 +153,7 @@ The default frontend workflow now supports plain-language search setup:
 
 Completed runs are ranked automatically before display and export:
 
-`Research question → Concepts → MeSH / semantic expansion → NIH RePORTER retrieval → Relevance ranking → Optional public email enrichment → Ranked researchers → CSV`
+`Research question → Concepts → MeSH / semantic expansion → NIH RePORTER retrieval → Relevance ranking → Optional public email enrichment → Optional profile enrichment → Ranked researchers → CSV`
 
 Advanced YAML remains available for power users, but non-technical users no longer need to write YAML or keywords manually to start.
 
@@ -220,6 +221,17 @@ query:
     timeout_seconds: 10
     max_pages_per_researcher: 3
     require_high_confidence: false
+
+  # Optional: researcher profile builder after ranking
+  profile_enrichment:
+    enabled: false
+    max_researchers: 25
+    sources:
+      - nih_reporter
+      - pubmed
+      - orcid
+      - institution_web
+    timeout_seconds: 10
 ```
 
 ### `topics` — how to filter locally (Stage 2)
@@ -376,6 +388,15 @@ NIH RePORTER does not reliably provide PI email addresses. The optional `email_e
 - `not_found` is normal for many researchers.
 - CSV columns such as `email_confidence`, `email_source`, `email_source_url`, `email_status`, and `email_notes` explain how trustworthy each match is.
 
+## Researcher Profile Builder
+
+Even when direct email is unavailable, the optional `profile_enrichment` stage makes the ranked CSV more actionable by adding safe public profile/search links and an outreach recommendation.
+
+- Profile enrichment is disabled by default.
+- It does not scrape Google Scholar or search-engine result pages; it only generates direct query URLs unless an authoritative NIH RePORTER PI URL is already available.
+- Output can include PubMed author queries, ORCID search URLs, Google Scholar queries, NIH RePORTER PI or project links, and faculty-profile search URLs.
+- `outreach_recommendation` helps triage `priority_contact`, `good_candidate`, `review_manually`, and `low_priority`.
+
 ---
 
 ## CSV Export Columns
@@ -390,6 +411,17 @@ NIH RePORTER does not reliably provide PI email addresses. The optional `email_e
 | `email_source_url` | Supporting public page URL when available |
 | `email_status` | `found_*_confidence`, `not_found`, `skipped`, or `error` |
 | `email_notes` | Human-readable explanation of how the email was found or why it was missing |
+| `researcher_profile_status` | `enriched`, `partial`, `not_found`, `skipped`, or `error` |
+| `researcher_profile_summary` | Deterministic outreach-oriented summary of the researcher’s fit |
+| `researcher_profile_confidence` | Confidence level for the generated profile package |
+| `faculty_profile_url` | Faculty-profile search URL for manual verification |
+| `orcid_url` | ORCID public search URL |
+| `pubmed_author_url` | PubMed author search URL |
+| `nih_reporter_pi_url` | Direct NIH RePORTER PI/project link or safe RePORTER search URL |
+| `google_scholar_query_url` | Google Scholar query URL |
+| `profile_source_urls` | Joined list of generated profile/search URLs |
+| `profile_notes` | Notes about how the profile links were constructed |
+| `outreach_recommendation` | `priority_contact`, `good_candidate`, `review_manually`, or `low_priority` |
 | `organization_name` | Institution name |
 | `organization_city/state/country` | Institution location |
 | `admin_ic` | NIH Institute/Center abbreviation (e.g. `NCI`, `NIMHD`) |

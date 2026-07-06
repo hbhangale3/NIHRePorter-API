@@ -46,6 +46,16 @@ const DEFAULT_YAML = `query:
     max_pages_per_researcher: 3
     require_high_confidence: false
 
+  profile_enrichment:
+    enabled: false
+    max_researchers: 25
+    sources:
+      - nih_reporter
+      - pubmed
+      - orcid
+      - institution_web
+    timeout_seconds: 10
+
 topics:
   - name: AI + Health Disparities
     include_any:
@@ -223,6 +233,12 @@ function createConfigFromBuilder(builder) {
         max_pages_per_researcher: 3,
         require_high_confidence: false,
       },
+      profile_enrichment: {
+        enabled: builder.profileEnrichmentEnabled,
+        max_researchers: Math.max(1, Number(builder.profileEnrichmentMaxResearchers) || 25),
+        sources: ['nih_reporter', 'pubmed', 'orcid', 'institution_web'],
+        timeout_seconds: 10,
+      },
     },
     topics: [
       {
@@ -268,6 +284,8 @@ function builderFromConfigObject(config) {
     multiQueryRetrievalEnabled: Boolean(config?.query?.multi_query_retrieval?.enabled),
     emailEnrichmentEnabled: Boolean(config?.query?.email_enrichment?.enabled),
     emailEnrichmentMaxResearchers: Number(config?.query?.email_enrichment?.max_researchers) || 25,
+    profileEnrichmentEnabled: Boolean(config?.query?.profile_enrichment?.enabled),
+    profileEnrichmentMaxResearchers: Number(config?.query?.profile_enrichment?.max_researchers) || 25,
   }
 }
 
@@ -306,6 +324,18 @@ function emailConfidenceTone(confidence) {
   if (confidence === 'high') return 'high'
   if (confidence === 'medium') return 'moderate'
   return 'weak'
+}
+
+function recommendationTone(recommendation) {
+  if (recommendation === 'priority_contact') return 'high'
+  if (recommendation === 'good_candidate') return 'moderate'
+  if (recommendation === 'review_manually') return 'weak'
+  return 'low'
+}
+
+function recommendationLabel(recommendation) {
+  if (!recommendation) return 'No recommendation'
+  return recommendation.replaceAll('_', ' ')
 }
 
 function TopicTag({ name, index }) {
@@ -1019,6 +1049,21 @@ export default function App() {
                         }
                       />
                     </div>
+
+                    <div className="form-card">
+                      <label className="field-label">Max researchers to profile</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={builderState.profileEnrichmentMaxResearchers}
+                        onChange={(e) =>
+                          updateBuilder((current) => ({
+                            ...current,
+                            profileEnrichmentMaxResearchers: Number(e.target.value) || 1,
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
 
                   <div className="toggle-stack">
@@ -1074,6 +1119,17 @@ export default function App() {
                         updateBuilder((current) => ({
                           ...current,
                           emailEnrichmentEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    <ToggleField
+                      label="Build researcher profile links"
+                      description="Adds public profile/search links and outreach recommendations for the highest-ranked researchers."
+                      checked={builderState.profileEnrichmentEnabled}
+                      onChange={(e) =>
+                        updateBuilder((current) => ({
+                          ...current,
+                          profileEnrichmentEnabled: e.target.checked,
                         }))
                       }
                     />
@@ -1446,6 +1502,58 @@ export default function App() {
                               <KeywordChips terms={r.mesh_matches} variant="teal" emptyLabel="No MeSH overlaps" />
                             </div>
                           ) : null}
+                        </div>
+
+                        <div className="result-detail-card result-detail-full">
+                          <h3>Outreach Readiness</h3>
+                          {r.outreach_recommendation ? (
+                            <div className="profile-recommendation-row">
+                              <span className={`confidence-badge tone-${recommendationTone(r.outreach_recommendation)}`}>
+                                {recommendationLabel(r.outreach_recommendation)}
+                              </span>
+                              {r.researcher_profile_status ? (
+                                <span className="detail-meta-line">
+                                  Profile status: {r.researcher_profile_status.replaceAll('_', ' ')}
+                                </span>
+                              ) : null}
+                              {r.researcher_profile_confidence ? (
+                                <span className="detail-meta-line">
+                                  Confidence: {r.researcher_profile_confidence}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {r.researcher_profile_summary ? (
+                            <div className="reasoning-text">{r.researcher_profile_summary}</div>
+                          ) : null}
+                          <div className="profile-link-grid">
+                            {r.faculty_profile_url ? (
+                              <a href={r.faculty_profile_url} target="_blank" rel="noreferrer" className="subtle-link">
+                                Faculty profile search ↗
+                              </a>
+                            ) : null}
+                            {r.pubmed_author_url ? (
+                              <a href={r.pubmed_author_url} target="_blank" rel="noreferrer" className="subtle-link">
+                                PubMed author search ↗
+                              </a>
+                            ) : null}
+                            {r.orcid_url ? (
+                              <a href={r.orcid_url} target="_blank" rel="noreferrer" className="subtle-link">
+                                ORCID search ↗
+                              </a>
+                            ) : null}
+                            {r.google_scholar_query_url ? (
+                              <a href={r.google_scholar_query_url} target="_blank" rel="noreferrer" className="subtle-link">
+                                Google Scholar query ↗
+                              </a>
+                            ) : null}
+                            {r.nih_reporter_pi_url ? (
+                              <a href={r.nih_reporter_pi_url} target="_blank" rel="noreferrer" className="subtle-link">
+                                NIH RePORTER profile ↗
+                              </a>
+                            ) : null}
+                          </div>
+                          {r.profile_notes ? <div className="detail-meta-line">{r.profile_notes}</div> : null}
                         </div>
 
                         <div className="result-detail-card result-detail-full">

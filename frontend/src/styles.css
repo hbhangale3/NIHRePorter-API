@@ -1249,6 +1249,12 @@ td {
   border: 1px solid rgba(174, 186, 188, 0.26);
 }
 
+.confidence-badge.tone-low {
+  color: #66777b;
+  background: rgba(174, 186, 188, 0.14);
+  border: 1px solid rgba(174, 186, 188, 0.22);
+}
+
 .pi-name {
   font-weight: 700;
   color: #2d3d44;
@@ -1261,7 +1267,9 @@ td {
 
 .email-enrichment-block,
 .email-meta,
-.email-row {
+.email-row,
+.profile-recommendation-row,
+.profile-link-grid {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -1277,6 +1285,14 @@ td {
 .email-meta {
   color: var(--text-muted);
   font-size: 0.82rem;
+}
+
+.profile-recommendation-row {
+  justify-content: flex-start;
+}
+
+.profile-link-grid {
+  align-items: flex-start;
 }
 
 .pi-id,

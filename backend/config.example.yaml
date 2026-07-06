@@ -61,6 +61,18 @@ query:
     max_pages_per_researcher: 3
     require_high_confidence: false
 
+  # Optional: public researcher profile builder after ranking.
+  # Adds profile/search URLs and outreach recommendations even when direct email is unavailable.
+  profile_enrichment:
+    enabled: false
+    max_researchers: 25
+    sources:
+      - nih_reporter
+      - pubmed
+      - orcid
+      - institution_web
+    timeout_seconds: 10
+
 topics:
   - name: AI + Health Disparities
     include_any:
