@@ -117,6 +117,20 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+Build the reproducible MeSH knowledge-base artifacts used by optional MeSH expansion:
+
+```bash
+python scripts/download_mesh_data.py
+python scripts/build_mesh_kb.py
+```
+
+You can also run the same two steps from the project root:
+
+```bash
+python backend/scripts/download_mesh_data.py
+python backend/scripts/build_mesh_kb.py
+```
+
 ### 2. Frontend
 
 ```bash
@@ -155,6 +169,15 @@ query:
     max_tree_depth: 1
     fallback_to_original: true
     cache_enabled: true
+
+  # Optional: semantic MeSH expansion
+  semantic_expansion:
+    enabled: false
+    top_k: 10
+    max_terms: 30
+    min_score: null
+    include_synonyms: true
+    require_existing_index: false
 
   # Optional: AI-powered keyword expansion
   ai_expansion:
@@ -255,7 +278,7 @@ Before:
 `YAML Keywords → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
 
 After:
-`YAML Keywords → Optional MeSH Expansion → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
+`YAML Keywords → Optional MeSH Expansion → Optional Semantic MeSH Expansion → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
 
 Enable it in YAML:
 
@@ -275,6 +298,36 @@ query:
 ```
 
 MeSH expansion is optional. If the block is omitted, the app behaves like the original version. If MeSH lookup is unavailable, the run falls back to the original keywords and downstream NIH search, PI extraction, local filtering, and CSV export remain unchanged. Email enrichment is still intentionally deferred because NIH RePORTER does not expose PI emails directly in a reliable way.
+
+## Semantic MeSH Expansion
+
+Lexical MeSH expansion uses MeSH synonyms and hierarchy. Semantic MeSH expansion uses vector search over the local MeSH descriptor metadata to find related concepts even when the exact wording differs.
+
+Semantic expansion is optional. It requires prebuilt embedding artifacts and does not download models or build embeddings during a normal NIH RePORTER run.
+
+Build and inspect the semantic index locally:
+
+```bash
+cd backend
+python scripts/build_mesh_embeddings.py --limit 1000
+python scripts/query_mesh_semantic.py "AI for diabetes in underserved populations" --top-k 10
+```
+
+The default embedding model is lightweight for Codespaces. We are not using the PubMed corpus directly in this phase; later phases can swap in biomedical embedding models if needed.
+
+To refresh the local MeSH knowledge base in Codespaces or any other clean checkout:
+
+```bash
+cd backend
+python scripts/download_mesh_data.py
+python scripts/build_mesh_kb.py
+```
+
+`download_mesh_data.py` saves the raw yearly XML files under `backend/knowledge/mesh/`. `build_mesh_kb.py` converts those raw inputs into the ignored processed artifacts under `backend/knowledge/processed/`:
+
+- `mesh_descriptors.json`
+- `mesh_graph.json`
+- `mesh_lookup.pkl`
 
 ---
 
