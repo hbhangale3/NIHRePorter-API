@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_rows(vectors: np.ndarray) -> np.ndarray:
@@ -60,6 +64,7 @@ class EmbeddingModel:
             if not model_source.exists():
                 kwargs["local_files_only"] = False
             try:
+                logger.info("Loading embedding model %s...", self.model_name)
                 self._model = SentenceTransformer(self.model_name, **kwargs)
             except Exception as exc:
                 raise RuntimeError(

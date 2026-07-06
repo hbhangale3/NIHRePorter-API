@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import yaml from 'js-yaml'
 import './styles.css'
 
@@ -259,21 +259,6 @@ function conceptSourceLabel(source) {
   return 'Manual'
 }
 
-function buildResultsQueryString(filters, offset, limit) {
-  const params = new URLSearchParams({
-    offset: String(offset),
-    limit: String(limit),
-  })
-
-  if (filters.minScore !== '') params.set('min_relevance_score', filters.minScore)
-  if (filters.onlyHighlyRelevant) params.set('only_highly_relevant', 'true')
-  if (filters.onlyAiProjects) params.set('only_ai', 'true')
-  if (filters.onlyHealthEquity) params.set('only_population', 'true')
-  if (filters.onlyDiabetes) params.set('only_disease', 'true')
-
-  return params.toString()
-}
-
 function relevanceBadgeTone(label) {
   if (label === 'Highly Relevant') return 'high'
   if (label === 'Moderately Relevant') return 'moderate'
@@ -367,13 +352,6 @@ export default function App() {
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const limit = 50
-  const [resultFilters, setResultFilters] = useState({
-    onlyHighlyRelevant: false,
-    onlyAiProjects: false,
-    onlyHealthEquity: false,
-    onlyDiabetes: false,
-    minScore: '',
-  })
 
   const [busy, setBusy] = useState(false)
   const [showSuggestModal, setShowSuggestModal] = useState(false)
@@ -413,12 +391,6 @@ export default function App() {
     () => builderState.concepts.map((concept) => concept.label),
     [builderState.concepts]
   )
-
-  useEffect(() => {
-    if (runId && status === 'completed') {
-      loadResults(runId, 0)
-    }
-  }, [resultFilters, runId, status])
 
   function topicColor(name) {
     const idx = topicNames.indexOf(name)
@@ -592,8 +564,7 @@ export default function App() {
   }
 
   async function loadResults(id, newOffset) {
-    const queryString = buildResultsQueryString(resultFilters, newOffset, limit)
-    const resp = await fetch(`/api/runs/${id}/results?${queryString}`)
+    const resp = await fetch(`/api/runs/${id}/results?offset=${newOffset}&limit=${limit}`)
     if (!resp.ok) throw new Error(await resp.text())
     const data = await resp.json()
     setOffset(data.offset)
@@ -1242,77 +1213,6 @@ export default function App() {
                   </button>
                 </div>
               ) : null}
-            </div>
-          </div>
-
-          <div className="results-filter-card">
-            <div className="results-filter-head">
-              <div>
-                <p className="card-title">Relevance Filters</p>
-                <h3>Score-first triage</h3>
-              </div>
-              <span className="sort-note">Default sort: Relevance Score descending</span>
-            </div>
-
-            <div className="filter-grid">
-              <label className="filter-toggle">
-                <input
-                  type="checkbox"
-                  checked={resultFilters.onlyHighlyRelevant}
-                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyHighlyRelevant: e.target.checked }))}
-                />
-                <span>Only Highly Relevant</span>
-              </label>
-              <label className="filter-toggle">
-                <input
-                  type="checkbox"
-                  checked={resultFilters.onlyAiProjects}
-                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyAiProjects: e.target.checked }))}
-                />
-                <span>Only AI projects</span>
-              </label>
-              <label className="filter-toggle">
-                <input
-                  type="checkbox"
-                  checked={resultFilters.onlyHealthEquity}
-                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyHealthEquity: e.target.checked }))}
-                />
-                <span>Only Health Equity</span>
-              </label>
-              <label className="filter-toggle">
-                <input
-                  type="checkbox"
-                  checked={resultFilters.onlyDiabetes}
-                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyDiabetes: e.target.checked }))}
-                />
-                <span>Only Diabetes</span>
-              </label>
-              <label className="filter-field">
-                <span>Minimum relevance score</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={resultFilters.minScore}
-                  onChange={(e) => setResultFilters((current) => ({ ...current, minScore: e.target.value }))}
-                  placeholder="60"
-                />
-              </label>
-              <button
-                className="btn btn-ghost"
-                type="button"
-                onClick={() =>
-                  setResultFilters({
-                    onlyHighlyRelevant: false,
-                    onlyAiProjects: false,
-                    onlyHealthEquity: false,
-                    onlyDiabetes: false,
-                    minScore: '',
-                  })
-                }
-              >
-                Reset Filters
-              </button>
             </div>
           </div>
 

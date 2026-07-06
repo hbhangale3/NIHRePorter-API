@@ -131,14 +131,14 @@ topics:
             ["telemedicine", "Remote Consultation"],
         )
 
-    @patch("app.runner.MeshSemanticRetriever")
+    @patch("app.runner.get_mesh_semantic_retriever")
     @patch("app.runner.ReporterClient")
     @patch("app.runner.build_outreach_rows")
     def test_runner_includes_semantic_terms_when_enabled(
         self,
         mock_build_rows: object,
         mock_reporter_client_cls: object,
-        mock_retriever_cls: object,
+        mock_get_retriever: object,
     ) -> None:
         config_yaml = """
 query:
@@ -159,7 +159,7 @@ topics:
   - name: Equity
     include_any: [diabetes]
 """
-        mock_retriever = mock_retriever_cls.return_value
+        mock_retriever = mock_get_retriever.return_value
         mock_retriever.expand_query.return_value = {
             "query": "AI diabetes underserved populations",
             "semantic_concepts": [
@@ -201,14 +201,14 @@ topics:
             ["AI", "diabetes", "underserved populations", "Diabetes Mellitus", "Healthcare Disparities"],
         )
 
-    @patch("app.runner.MeshSemanticRetriever")
+    @patch("app.runner.get_mesh_semantic_retriever")
     @patch("app.runner.ReporterClient")
     @patch("app.runner.build_outreach_rows")
     def test_runner_continues_when_semantic_expansion_is_optional(
         self,
         mock_build_rows: object,
         mock_reporter_client_cls: object,
-        mock_retriever_cls: object,
+        mock_get_retriever: object,
     ) -> None:
         config_yaml = """
 query:
@@ -225,7 +225,7 @@ topics:
   - name: Telehealth
     include_any: [telemedicine]
 """
-        mock_retriever = mock_retriever_cls.return_value
+        mock_retriever = mock_get_retriever.return_value
         mock_retriever.expand_query.side_effect = FileNotFoundError("missing semantic index")
 
         mock_client = mock_reporter_client_cls.return_value
@@ -242,8 +242,8 @@ topics:
         self.assertEqual(expansion_trace["semantic"]["error"], "missing semantic index")
         self.assertEqual(expansion_trace["final_keywords"], ["telemedicine"])
 
-    @patch("app.runner.MeshSemanticRetriever")
-    def test_runner_fails_when_semantic_expansion_is_required(self, mock_retriever_cls: object) -> None:
+    @patch("app.runner.get_mesh_semantic_retriever")
+    def test_runner_fails_when_semantic_expansion_is_required(self, mock_get_retriever: object) -> None:
         config_yaml = """
 query:
   fiscal_years: [2024]
@@ -259,7 +259,7 @@ topics:
   - name: Telehealth
     include_any: [telemedicine]
 """
-        mock_retriever = mock_retriever_cls.return_value
+        mock_retriever = mock_get_retriever.return_value
         mock_retriever.expand_query.side_effect = FileNotFoundError("missing semantic index")
 
         with self.assertRaisesRegex(RuntimeError, "require_existing_index=true"):

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .mesh import MeshKnowledgeBase
-from .semantic import MeshSemanticRetriever
+from .semantic import MeshSemanticRetriever, get_mesh_semantic_retriever
 
 
 STOPWORDS = {
@@ -197,7 +197,7 @@ class ConceptSuggester:
         metadata_path = embeddings_dir / "mesh_vector_metadata.json"
         if not vector_path.exists() or not metadata_path.exists():
             raise FileNotFoundError("Semantic MeSH index is not available.")
-        return MeshSemanticRetriever(embeddings_dir=embeddings_dir)
+        return get_mesh_semantic_retriever()
 
     def _default_mesh_kb_factory(self) -> MeshKnowledgeBase:
         backend_dir = Path(__file__).resolve().parents[1]

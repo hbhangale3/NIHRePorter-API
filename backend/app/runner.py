@@ -12,7 +12,7 @@ from .processor import build_outreach_rows
 from .keyword_expander import KeywordExpander
 from .mesh_expander import MeshExpander
 from .ranking import OutreachRankingContext, OutreachRankingScorer
-from .semantic import MeshSemanticRetriever
+from .semantic import MeshSemanticRetriever, get_embedding_model, get_mesh_semantic_retriever
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ async def run_pipeline_async(
         semantic_query = " ".join(_deduplicate_terms_case_insensitive(original_keywords))
         semantic_trace["query"] = semantic_query
         try:
-            retriever = MeshSemanticRetriever()
+            retriever = get_mesh_semantic_retriever()
             semantic_result = retriever.expand_query(
                 query=semantic_query,
                 top_k=config.query.semantic_expansion.top_k,
@@ -210,7 +210,7 @@ async def run_pipeline_async(
             if isinstance(concept, dict) and concept.get("preferred_name")
         ],
     )
-    ranking_scorer = OutreachRankingScorer()
+    ranking_scorer = OutreachRankingScorer(embedding_model=get_embedding_model())
     rows, ranking_summary = ranking_scorer.rank_rows(rows, ranking_context)
     summary["ranking"] = ranking_summary
     logger.info(

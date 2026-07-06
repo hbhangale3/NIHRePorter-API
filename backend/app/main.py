@@ -13,6 +13,7 @@ from .ranking import relevance_badge_for_score
 from .run_store import run_store
 from .runner import run_pipeline_async
 from .keyword_suggester import KeywordSuggester
+from .semantic import preload_semantic_resources_if_available
 from pydantic import BaseModel
 
 
@@ -25,6 +26,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def preload_semantic_resources() -> None:
+    preload_semantic_resources_if_available()
 
 
 @app.get("/api/health")

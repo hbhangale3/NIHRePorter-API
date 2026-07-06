@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .embedding_model import EmbeddingModel
+from .semantic_cache import get_embedding_model
 from .semantic_models import MeshVectorMetadata, SemanticMeshResult
 from .vector_store import FaissVectorStore
 
@@ -124,7 +125,7 @@ class MeshSemanticRetriever:
 
     def _get_embedding_model(self) -> EmbeddingModel:
         if self.embedding_model is None:
-            self.embedding_model = EmbeddingModel(self.model_name)
+            self.embedding_model = get_embedding_model(self.model_name)
         return self.embedding_model
 
     def _append_term(

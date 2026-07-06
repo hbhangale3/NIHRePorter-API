@@ -6,6 +6,7 @@ import numpy as np
 
 from ..models import PIOutreachRow
 from ..semantic.embedding_model import EmbeddingModel
+from ..semantic.semantic_cache import get_embedding_model
 
 
 @dataclass(slots=True)
@@ -15,7 +16,7 @@ class SemanticScoreResult:
 
 class SemanticSimilarityScorer:
     def __init__(self, embedding_model: EmbeddingModel | None = None) -> None:
-        self.embedding_model = embedding_model or EmbeddingModel()
+        self.embedding_model = embedding_model or get_embedding_model()
 
     def score_rows(self, query: str, rows: list[PIOutreachRow]) -> dict[str, SemanticScoreResult]:
         if not query.strip() or not rows:
