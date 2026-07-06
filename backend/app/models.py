@@ -31,12 +31,22 @@ class MeshExpansionConfig(BaseModel):
     cache_enabled: bool = True
 
 
+class SemanticExpansionConfig(BaseModel):
+    enabled: bool = False
+    top_k: int = 10
+    max_terms: int = 30
+    min_score: float | None = None
+    include_synonyms: bool = True
+    require_existing_index: bool = False
+
+
 class QueryConfig(BaseModel):
     fiscal_years: list[int] = Field(default_factory=list)
     broad_keywords: list[str] = Field(default_factory=list)
     text_search_field: str = "all"
-    text_search_operator: Literal["and", "or"] = "and"
+    text_search_operator: Literal["and", "or"] | None = None
     mesh_expansion: MeshExpansionConfig = Field(default_factory=MeshExpansionConfig)
+    semantic_expansion: SemanticExpansionConfig = Field(default_factory=SemanticExpansionConfig)
     ai_expansion: AIExpansionConfig = Field(default_factory=AIExpansionConfig)
 
 

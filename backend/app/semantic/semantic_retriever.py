@@ -74,8 +74,9 @@ class MeshSemanticRetriever:
         top_k: int = 10,
         include_synonyms: bool = True,
         max_terms: int = 30,
+        min_score: float | None = None,
     ) -> dict[str, object]:
-        results = self.retrieve(query, top_k=top_k)
+        results = self.retrieve(query, top_k=top_k, min_score=min_score)
 
         expanded_terms: list[str] = []
         seen_terms: set[str] = set()
@@ -142,4 +143,3 @@ class MeshSemanticRetriever:
             return
         seen_terms.add(lowered)
         terms.append(normalized)
-

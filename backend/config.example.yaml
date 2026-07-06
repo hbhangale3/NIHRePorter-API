@@ -18,6 +18,19 @@ query:
     max_tree_depth: 1
     fallback_to_original: true
     cache_enabled: true
+
+  # Optional: semantic MeSH expansion uses vector search over local MeSH descriptor metadata.
+  # Requires embedding artifacts created by:
+  # python scripts/build_mesh_embeddings.py --limit 1000
+  # If disabled, no semantic retrieval is used.
+  # For production, build the full index on a larger machine.
+  semantic_expansion:
+    enabled: false
+    top_k: 10
+    max_terms: 30
+    min_score: null
+    include_synonyms: true
+    require_existing_index: false
   
   # AI-powered keyword expansion (optional)
   ai_expansion:

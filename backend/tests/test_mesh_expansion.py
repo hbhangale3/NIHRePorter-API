@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.mesh_expander import MeshExpander
 from app.models import MeshExpansionConfig, PIOutreachRow
-from app.runner import run_pipeline
+from app.runner import format_search_terms_for_nih, run_pipeline
 
 
 class MeshExpanderTests(unittest.TestCase):
@@ -66,14 +66,14 @@ class MeshExpanderTests(unittest.TestCase):
 
 
 class RunnerMeshIntegrationTests(unittest.TestCase):
-    @patch("app.runner.build_outreach_rows")
-    @patch("app.runner.ReporterClient")
     @patch("app.runner.MeshExpander")
+    @patch("app.runner.ReporterClient")
+    @patch("app.runner.build_outreach_rows")
     def test_runner_includes_expansion_trace(
         self,
-        mock_mesh_expander_cls: object,
-        mock_reporter_client_cls: object,
         mock_build_rows: object,
+        mock_reporter_client_cls: object,
+        mock_mesh_expander_cls: object,
     ) -> None:
         config_yaml = """
 query:
@@ -118,6 +118,10 @@ topics:
         self.assertEqual(keyword_expansions, {})
         self.assertEqual(expansion_trace["original_keywords"], ["telemedicine"])
         self.assertTrue(expansion_trace["mesh"]["enabled"])
+        self.assertFalse(expansion_trace["semantic"]["enabled"])
+        self.assertEqual(expansion_trace["semantic"]["expanded_terms"], [])
+        self.assertIsNone(expansion_trace["semantic"]["query"])
+        self.assertIsNone(expansion_trace["semantic"]["error"])
         self.assertEqual(
             expansion_trace["mesh"]["terms_by_keyword"]["telemedicine"],
             ["Telemedicine", "Remote Consultation"],
@@ -125,4 +129,156 @@ topics:
         self.assertEqual(
             expansion_trace["final_keywords"],
             ["telemedicine", "Remote Consultation"],
+        )
+
+    @patch("app.runner.MeshSemanticRetriever")
+    @patch("app.runner.ReporterClient")
+    @patch("app.runner.build_outreach_rows")
+    def test_runner_includes_semantic_terms_when_enabled(
+        self,
+        mock_build_rows: object,
+        mock_reporter_client_cls: object,
+        mock_retriever_cls: object,
+    ) -> None:
+        config_yaml = """
+query:
+  fiscal_years: [2024]
+  broad_keywords:
+    - AI
+    - diabetes
+    - underserved populations
+  text_search_field: all
+  semantic_expansion:
+    enabled: true
+    top_k: 5
+    max_terms: 6
+    include_synonyms: true
+  ai_expansion:
+    enabled: false
+topics:
+  - name: Equity
+    include_any: [diabetes]
+"""
+        mock_retriever = mock_retriever_cls.return_value
+        mock_retriever.expand_query.return_value = {
+            "query": "AI diabetes underserved populations",
+            "semantic_concepts": [
+                {
+                    "mesh_id": "D1",
+                    "preferred_name": "Diabetes Mellitus",
+                    "score": 0.91,
+                    "synonyms": ["Diabetes"],
+                    "tree_numbers": ["C18.452"],
+                    "scope_note": "Test scope note",
+                }
+            ],
+            "expanded_terms": ["Diabetes Mellitus", "Healthcare Disparities"],
+        }
+
+        mock_client = mock_reporter_client_cls.return_value
+        mock_client.fetch_all_projects = AsyncMock(return_value=[])
+        mock_client.aclose = AsyncMock(return_value=None)
+
+        mock_build_rows.return_value = ([], {"matched_project_count": 0, "counts_by_topic": {}})
+
+        _results, _summary, _keyword_expansions, expansion_trace = run_pipeline(config_yaml, max_pages=1)
+
+        mock_retriever.expand_query.assert_called_once()
+        criteria = mock_client.fetch_all_projects.await_args.args[0]
+        self.assertEqual(criteria["advanced_text_search"]["operator"], "or")
+        self.assertEqual(
+            criteria["advanced_text_search"]["search_text"],
+            'AI diabetes "underserved populations" "Diabetes Mellitus" "Healthcare Disparities"',
+        )
+        self.assertTrue(expansion_trace["semantic"]["enabled"])
+        self.assertEqual(expansion_trace["semantic"]["query"], "AI diabetes underserved populations")
+        self.assertEqual(
+            expansion_trace["semantic"]["expanded_terms"],
+            ["Diabetes Mellitus", "Healthcare Disparities"],
+        )
+        self.assertEqual(
+            expansion_trace["final_keywords"],
+            ["AI", "diabetes", "underserved populations", "Diabetes Mellitus", "Healthcare Disparities"],
+        )
+
+    @patch("app.runner.MeshSemanticRetriever")
+    @patch("app.runner.ReporterClient")
+    @patch("app.runner.build_outreach_rows")
+    def test_runner_continues_when_semantic_expansion_is_optional(
+        self,
+        mock_build_rows: object,
+        mock_reporter_client_cls: object,
+        mock_retriever_cls: object,
+    ) -> None:
+        config_yaml = """
+query:
+  fiscal_years: [2024]
+  broad_keywords:
+    - telemedicine
+  text_search_field: all
+  semantic_expansion:
+    enabled: true
+    require_existing_index: false
+  ai_expansion:
+    enabled: false
+topics:
+  - name: Telehealth
+    include_any: [telemedicine]
+"""
+        mock_retriever = mock_retriever_cls.return_value
+        mock_retriever.expand_query.side_effect = FileNotFoundError("missing semantic index")
+
+        mock_client = mock_reporter_client_cls.return_value
+        mock_client.fetch_all_projects = AsyncMock(return_value=[])
+        mock_client.aclose = AsyncMock(return_value=None)
+
+        mock_build_rows.return_value = ([], {"matched_project_count": 0, "counts_by_topic": {}})
+
+        _results, _summary, _keyword_expansions, expansion_trace = run_pipeline(config_yaml, max_pages=1)
+
+        self.assertTrue(expansion_trace["semantic"]["enabled"])
+        self.assertEqual(expansion_trace["semantic"]["expanded_terms"], [])
+        self.assertEqual(expansion_trace["semantic"]["concepts"], [])
+        self.assertEqual(expansion_trace["semantic"]["error"], "missing semantic index")
+        self.assertEqual(expansion_trace["final_keywords"], ["telemedicine"])
+
+    @patch("app.runner.MeshSemanticRetriever")
+    def test_runner_fails_when_semantic_expansion_is_required(self, mock_retriever_cls: object) -> None:
+        config_yaml = """
+query:
+  fiscal_years: [2024]
+  broad_keywords:
+    - telemedicine
+  text_search_field: all
+  semantic_expansion:
+    enabled: true
+    require_existing_index: true
+  ai_expansion:
+    enabled: false
+topics:
+  - name: Telehealth
+    include_any: [telemedicine]
+"""
+        mock_retriever = mock_retriever_cls.return_value
+        mock_retriever.expand_query.side_effect = FileNotFoundError("missing semantic index")
+
+        with self.assertRaisesRegex(RuntimeError, "require_existing_index=true"):
+            run_pipeline(config_yaml, max_pages=1)
+
+
+class RunnerSearchFormattingTests(unittest.TestCase):
+    def test_format_search_terms_for_nih_quotes_multi_word_terms(self) -> None:
+        formatted = format_search_terms_for_nih(
+            [
+                "telemedicine",
+                "Remote Consultation",
+                "Health Status Disparities",
+                "telemedicine",
+                'He said "AI"',
+            ]
+        )
+
+        self.assertEqual(
+            formatted,
+            'telemedicine "Remote Consultation" "Health Status Disparities" "He said \\"AI\\""',
         )

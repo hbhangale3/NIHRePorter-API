@@ -11,9 +11,44 @@ from .reporter_client import ReporterClient
 from .processor import build_outreach_rows
 from .keyword_expander import KeywordExpander
 from .mesh_expander import MeshExpander
+from .semantic import MeshSemanticRetriever
 
 
 logger = logging.getLogger(__name__)
+
+
+def _deduplicate_terms_case_insensitive(terms: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        normalized = term.strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(normalized)
+    return deduped
+
+
+def format_search_terms_for_nih(terms: list[str]) -> str:
+    formatted_terms: list[str] = []
+    for term in _deduplicate_terms_case_insensitive(terms):
+        escaped = term.replace('"', '\\"')
+        if any(char.isspace() for char in escaped):
+            formatted_terms.append(f'"{escaped}"')
+        else:
+            formatted_terms.append(escaped)
+    return " ".join(formatted_terms)
+
+
+def _resolve_text_search_operator(config: AppConfig) -> str:
+    if config.query.text_search_operator is not None:
+        return config.query.text_search_operator
+    if config.query.mesh_expansion.enabled or config.query.semantic_expansion.enabled:
+        return "or"
+    return "and"
 
 
 def _build_stage1_criteria(config: AppConfig, expanded_keywords: list[str] | None = None) -> dict[str, Any]:
@@ -23,14 +58,13 @@ def _build_stage1_criteria(config: AppConfig, expanded_keywords: list[str] | Non
         criteria["fiscal_years"] = config.query.fiscal_years
 
     keywords_to_use = expanded_keywords if expanded_keywords else config.query.broad_keywords
-    
+
     if keywords_to_use:
-        # NIH RePORTER API v2 uses "advanced_text_search" (not "text_search")
-        # and "operator" (not "search_text_operator")
+        operator = _resolve_text_search_operator(config)
         criteria["advanced_text_search"] = {
-            "search_text": " ".join(keywords_to_use),
+            "search_text": format_search_terms_for_nih(keywords_to_use),
             "search_field": config.query.text_search_field,
-            "operator": config.query.text_search_operator,
+            "operator": operator,
         }
 
     return criteria
@@ -44,9 +78,16 @@ async def run_pipeline_async(
     config = load_config_from_yaml_str(config_yaml)
 
     original_keywords = list(config.query.broad_keywords)
-    current_keywords = list(original_keywords)
+    current_keywords = _deduplicate_terms_case_insensitive(original_keywords)
     mesh_trace: dict[str, list[str]] = {}
     keyword_expansions: dict[str, list[str]] = {}
+    semantic_trace: dict[str, Any] = {
+        "enabled": config.query.semantic_expansion.enabled,
+        "query": None,
+        "concepts": [],
+        "expanded_terms": [],
+        "error": None,
+    }
 
     if current_keywords and config.query.mesh_expansion.enabled:
         mesh_expander = MeshExpander()
@@ -54,8 +95,39 @@ async def run_pipeline_async(
             current_keywords,
             config.query.mesh_expansion,
         )
+        current_keywords = _deduplicate_terms_case_insensitive(current_keywords)
     logger.info("Keyword pipeline: original YAML keywords=%s", json.dumps(original_keywords))
     logger.info("Keyword pipeline: after MeSH expansion=%s", json.dumps(current_keywords))
+
+    if current_keywords and config.query.semantic_expansion.enabled:
+        semantic_query = " ".join(_deduplicate_terms_case_insensitive(original_keywords))
+        semantic_trace["query"] = semantic_query
+        try:
+            retriever = MeshSemanticRetriever()
+            semantic_result = retriever.expand_query(
+                query=semantic_query,
+                top_k=config.query.semantic_expansion.top_k,
+                include_synonyms=config.query.semantic_expansion.include_synonyms,
+                max_terms=config.query.semantic_expansion.max_terms,
+                min_score=config.query.semantic_expansion.min_score,
+            )
+            semantic_trace["concepts"] = semantic_result["semantic_concepts"]
+            semantic_trace["expanded_terms"] = semantic_result["expanded_terms"]
+            current_keywords = _deduplicate_terms_case_insensitive(
+                current_keywords + list(semantic_result["expanded_terms"])
+            )
+            logger.info(
+                "Keyword pipeline: after semantic expansion=%s",
+                json.dumps(current_keywords),
+            )
+        except Exception as exc:
+            semantic_trace["error"] = str(exc)
+            if config.query.semantic_expansion.require_existing_index:
+                raise RuntimeError(
+                    "Semantic MeSH expansion was enabled and require_existing_index=true, "
+                    f"but retrieval failed: {exc}"
+                ) from exc
+            logger.warning("Semantic MeSH expansion unavailable; continuing without semantic terms: %s", exc)
 
     if current_keywords and config.query.ai_expansion.enabled:
         expander = KeywordExpander(
@@ -68,6 +140,7 @@ async def run_pipeline_async(
             context=config.query.ai_expansion.context,
             max_expansions=config.query.ai_expansion.max_expansions_per_keyword,
         )
+        current_keywords = _deduplicate_terms_case_insensitive(current_keywords)
     logger.info("Keyword pipeline: after AI expansion=%s", json.dumps(current_keywords))
 
     criteria = _build_stage1_criteria(config, current_keywords)
@@ -100,6 +173,7 @@ async def run_pipeline_async(
     finally:
         await client.aclose()
     logger.info("NIH projects returned before local filtering=%d", len(projects))
+    logger.info("Semantic terms available to run=%s", bool(semantic_trace["expanded_terms"]))
 
     rows, summary = build_outreach_rows(projects, config)
     logger.info(
@@ -116,6 +190,7 @@ async def run_pipeline_async(
             "enabled": config.query.mesh_expansion.enabled,
             "terms_by_keyword": mesh_trace,
         },
+        "semantic": semantic_trace,
         "ai": {
             "enabled": config.query.ai_expansion.enabled,
             "terms_by_keyword": keyword_expansions,

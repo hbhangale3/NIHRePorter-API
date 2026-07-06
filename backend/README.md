@@ -34,7 +34,7 @@ Before:
 `YAML Keywords → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
 
 After:
-`YAML Keywords → Optional MeSH Expansion → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
+`YAML Keywords → Optional MeSH Expansion → Optional Semantic MeSH Expansion → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
 
 If `mesh_expansion` is omitted, behavior stays exactly the same as before. If live MeSH lookup fails, the pipeline logs the issue and falls back to the original keywords so runs still complete.
 
@@ -73,3 +73,12 @@ From the `backend/` directory:
 `python scripts/query_mesh_semantic.py "AI for diabetes in underserved populations" --top-k 10`
 
 The current default embedding model is `sentence-transformers/all-MiniLM-L6-v2`, which is lightweight enough for Codespaces and fast iteration. This phase does not use the PubMed corpus directly; it provides semantic matching over the current MeSH descriptor metadata only. Later phases can swap in more biomedical-specific embedding models such as PubMedBERT if we decide the extra weight is worth it.
+
+## Semantic MeSH Expansion
+
+Phase 3 makes semantic retrieval available as an optional expansion stage inside the existing NIH RePORTER pipeline.
+
+- Lexical MeSH expansion uses synonyms and hierarchy from MeSH records.
+- Semantic expansion uses vector search over the locally built MeSH descriptor metadata.
+- Semantic expansion is optional and disabled by default.
+- Normal runs do not build embeddings automatically; the embedding artifacts must already exist under `backend/knowledge/embeddings/`.
