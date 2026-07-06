@@ -334,8 +334,29 @@ function recommendationTone(recommendation) {
 }
 
 function recommendationLabel(recommendation) {
-  if (!recommendation) return 'No recommendation'
-  return recommendation.replaceAll('_', ' ')
+  if (recommendation === 'priority_contact') return 'Priority outreach candidate'
+  if (recommendation === 'good_candidate') return 'Good outreach candidate'
+  if (recommendation === 'review_manually') return 'Review manually'
+  if (recommendation === 'low_priority') return 'Low priority'
+  return 'No recommendation'
+}
+
+function profileStatusLabel(status) {
+  if (status === 'verified_profile_link') return 'verified profile link'
+  if (status === 'search_links_generated') return 'search links generated'
+  if (status === 'partial') return 'partial'
+  if (status === 'not_found') return 'not found'
+  if (status === 'skipped') return 'skipped'
+  if (status === 'error') return 'error'
+  return status || 'unknown'
+}
+
+function profileConfidenceLabel(confidence) {
+  if (confidence === 'verified') return 'verified'
+  if (confidence === 'likely') return 'likely'
+  if (confidence === 'search_only') return 'search only'
+  if (confidence === 'not_found') return 'not found'
+  return confidence || 'unknown'
 }
 
 function TopicTag({ name, index }) {
@@ -1513,12 +1534,12 @@ export default function App() {
                               </span>
                               {r.researcher_profile_status ? (
                                 <span className="detail-meta-line">
-                                  Profile status: {r.researcher_profile_status.replaceAll('_', ' ')}
+                                  Profile status: {profileStatusLabel(r.researcher_profile_status)}
                                 </span>
                               ) : null}
                               {r.researcher_profile_confidence ? (
                                 <span className="detail-meta-line">
-                                  Confidence: {r.researcher_profile_confidence}
+                                  Link confidence: {profileConfidenceLabel(r.researcher_profile_confidence)}
                                 </span>
                               ) : null}
                             </div>
@@ -1529,27 +1550,27 @@ export default function App() {
                           <div className="profile-link-grid">
                             {r.faculty_profile_url ? (
                               <a href={r.faculty_profile_url} target="_blank" rel="noreferrer" className="subtle-link">
-                                Faculty profile search ↗
+                                Search Faculty Profile ↗
                               </a>
                             ) : null}
                             {r.pubmed_author_url ? (
                               <a href={r.pubmed_author_url} target="_blank" rel="noreferrer" className="subtle-link">
-                                PubMed author search ↗
+                                Search PubMed Author ↗
                               </a>
                             ) : null}
                             {r.orcid_url ? (
                               <a href={r.orcid_url} target="_blank" rel="noreferrer" className="subtle-link">
-                                ORCID search ↗
+                                Search ORCID ↗
                               </a>
                             ) : null}
                             {r.google_scholar_query_url ? (
                               <a href={r.google_scholar_query_url} target="_blank" rel="noreferrer" className="subtle-link">
-                                Google Scholar query ↗
+                                Search Google Scholar ↗
                               </a>
                             ) : null}
                             {r.nih_reporter_pi_url ? (
                               <a href={r.nih_reporter_pi_url} target="_blank" rel="noreferrer" className="subtle-link">
-                                NIH RePORTER profile ↗
+                                {r.pi_profile_id ? 'Open NIH RePORTER PI Page ↗' : 'Search NIH RePORTER ↗'}
                               </a>
                             ) : null}
                           </div>

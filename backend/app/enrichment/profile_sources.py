@@ -43,12 +43,22 @@ def build_faculty_profile_search_url(row: PIOutreachRow) -> str | None:
 
 
 def build_pubmed_author_url(row: PIOutreachRow) -> str | None:
-    pi_name = (row.pi_name or "").strip()
-    if not pi_name:
+    full_name = (row.pi_name or "").strip()
+    first_name = (row.pi_first_name or "").strip()
+    last_name = (row.pi_last_name or "").strip()
+    if not any([full_name, first_name, last_name]):
         return None
-    organization = (row.organization_name or "").strip()
-    author_query = f'"{pi_name}"[Author]'
-    query = f"{author_query} {organization}".strip()
+    if first_name and last_name:
+        query = f'"{first_name} {last_name}"[Author]'
+    elif full_name and last_name and full_name != last_name:
+        query = f'"{full_name.split()[0]} {last_name}"[Author]'
+    elif last_name and first_name:
+        query = f"{last_name} {first_name[0]}[Author]"
+    else:
+        organization = _organization_hint(row)
+        query = f"{last_name or full_name}[Author]"
+        if organization:
+            query = f"{query} {organization}"
     return f"{PUBMED_SEARCH_BASE_URL}{quote_plus(query)}"
 
 
@@ -60,10 +70,23 @@ def build_orcid_search_url(row: PIOutreachRow) -> str | None:
 def build_nih_reporter_profile_url(row: PIOutreachRow) -> str | None:
     if row.pi_profile_id:
         return f"https://reporter.nih.gov/pi-details/{row.pi_profile_id}"
-    if row.project_ids:
-        return f"https://reporter.nih.gov/project-details/{row.project_ids[0]}"
     encoded = _encode_query([row.pi_name or "", row.organization_name or ""])
     return f"{NIH_REPORTER_SEARCH_BASE_URL}{encoded}" if encoded else None
+
+
+def has_verified_nih_reporter_pi_url(row: PIOutreachRow, url: str | None) -> bool:
+    return bool(row.pi_profile_id and url and "/pi-details/" in url)
+
+
+def _organization_hint(row: PIOutreachRow) -> str:
+    organization = (row.organization_name or "").strip()
+    if not organization:
+        return ""
+    words = [word for word in organization.split() if word and word[0].isalnum()]
+    acronym = "".join(word[0].upper() for word in words if word[0].isalpha())
+    if 2 <= len(acronym) <= 6:
+        return acronym
+    return organization
 
 
 class NihReporterProfileSource:
@@ -73,11 +96,9 @@ class NihReporterProfileSource:
         url = build_nih_reporter_profile_url(row)
         notes: list[str] = []
         if row.pi_profile_id:
-            notes.append("Direct NIH RePORTER PI profile URL available.")
-        elif row.project_ids:
-            notes.append("Using NIH RePORTER project page as a profile anchor.")
+            notes.append("Direct NIH RePORTER PI URL generated from the PI identifier.")
         elif url:
-            notes.append("Generated NIH RePORTER search URL from PI name and organization.")
+            notes.append("NIH RePORTER search URL generated from PI name and organization.")
         return ProfileSourceResult(
             source=self.name,
             urls={"nih_reporter_pi_url": url} if url else {},
@@ -93,7 +114,7 @@ class PubMedProfileSource:
         return ProfileSourceResult(
             source=self.name,
             urls={"pubmed_author_url": url} if url else {},
-            notes=["Generated PubMed author search URL."] if url else [],
+            notes=["PubMed author search URL generated."] if url else [],
         )
 
 
@@ -105,7 +126,7 @@ class OrcidProfileSource:
         return ProfileSourceResult(
             source=self.name,
             urls={"orcid_url": url} if url else {},
-            notes=["Generated ORCID public search URL."] if url else [],
+            notes=["ORCID search URL generated."] if url else [],
         )
 
 
@@ -117,7 +138,7 @@ class InstitutionWebProfileSource:
         return ProfileSourceResult(
             source=self.name,
             urls={"faculty_profile_url": url} if url else {},
-            notes=["Generated faculty-profile search URL for manual review."] if url else [],
+            notes=["Faculty profile search URL generated for manual review."] if url else [],
         )
 
 

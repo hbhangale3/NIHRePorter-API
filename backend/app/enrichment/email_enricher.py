@@ -101,6 +101,7 @@ class EmailEnricher:
         candidates: list[EmailCandidate] = []
         notes: list[str] = []
         saw_non_skipped = False
+        saw_non_error_result = False
         had_error = False
 
         for source in sources:
@@ -114,6 +115,11 @@ class EmailEnricher:
 
             if result.notes:
                 notes.append(f"{source.name}: {result.notes}")
+            if result.status == "error":
+                had_error = True
+            else:
+                if result.status != "skipped":
+                    saw_non_error_result = True
             if result.status != "skipped":
                 saw_non_skipped = True
             if result.candidate is not None:
@@ -132,7 +138,7 @@ class EmailEnricher:
                 }
             )
 
-        status = "error" if had_error and not saw_non_skipped else "not_found" if saw_non_skipped else "skipped"
+        status = "error" if had_error and not saw_non_error_result else "not_found" if saw_non_skipped else "skipped"
         if self.config.require_high_confidence and candidates:
             notes.append("Only low or medium confidence candidates were found, so none were kept.")
         return row.model_copy(

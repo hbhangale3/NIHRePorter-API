@@ -4,6 +4,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.enrichment.email_enricher import EmailEnricher
@@ -14,6 +16,7 @@ from app.enrichment.email_utils import (
     extract_emails,
     score_email_candidate,
 )
+from app.enrichment.pubmed_email import PubMedEmailLookup
 from app.models import EmailEnrichmentConfig, PIOutreachRow
 
 
@@ -35,6 +38,18 @@ class FailingSource:
 
     async def lookup(self, row: PIOutreachRow) -> SourceLookupResult:
         raise RuntimeError(f"{self.name} unavailable")
+
+
+class SequenceAsyncClient:
+    def __init__(self, responses: list[httpx.Response]) -> None:
+        self.responses = list(responses)
+        self.calls: list[tuple[str, dict | None]] = []
+
+    async def get(self, url: str, *, params=None, timeout=None):  # noqa: ANN001
+        self.calls.append((url, params))
+        if not self.responses:
+            raise AssertionError("No more fake responses available.")
+        return self.responses.pop(0)
 
 
 def _row(name: str, score: int = 80, email: str | None = None) -> PIOutreachRow:
@@ -176,3 +191,97 @@ def test_existing_pi_email_is_not_overwritten() -> None:
     assert enriched_rows[0].pi_email == "evan.cole@nyu.edu"
     assert enriched_rows[0].email_source == "nih_reporter"
     assert enriched_rows[0].email_status == "found_high_confidence"
+
+
+def test_pubmed_429_triggers_retry_and_backoff() -> None:
+    PubMedEmailLookup.reset_rate_limit_state()
+    request = httpx.Request("GET", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi")
+    client = SequenceAsyncClient(
+        [
+            httpx.Response(429, request=request),
+            httpx.Response(429, request=request),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+        ]
+    )
+    sleeps: list[float] = []
+    lookup = PubMedEmailLookup(
+        client=client,
+        sleep_func=lambda seconds: sleeps.append(seconds) or asyncio.sleep(0),
+        min_request_interval_seconds=0,
+    )
+
+    result = asyncio.run(lookup.lookup(_row("Dana Reed")))
+
+    assert result.status == "not_found"
+    assert sleeps[:2] == [1, 2]
+    assert len(client.calls) == 5
+
+
+def test_pubmed_lookup_uses_cache_for_repeated_pi() -> None:
+    PubMedEmailLookup.reset_rate_limit_state()
+    request = httpx.Request("GET", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi")
+    client = SequenceAsyncClient(
+        [
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+        ]
+    )
+    lookup = PubMedEmailLookup(client=client, min_request_interval_seconds=0)
+    row = _row("Dana Reed")
+
+    first = asyncio.run(lookup.lookup(row))
+    second = asyncio.run(lookup.lookup(row))
+
+    assert first.status == "not_found"
+    assert second.status == "not_found"
+    assert len(client.calls) == 3
+
+
+def test_pubmed_query_strategy_does_not_require_title() -> None:
+    PubMedEmailLookup.reset_rate_limit_state()
+    request = httpx.Request("GET", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi")
+    client = SequenceAsyncClient(
+        [
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+            httpx.Response(200, request=request, json={"esearchresult": {"idlist": []}}),
+        ]
+    )
+    row = _row("Rosalyn Sayaman")
+    row.sample_project_titles = []
+    lookup = PubMedEmailLookup(client=client, min_request_interval_seconds=0)
+
+    result = asyncio.run(lookup.lookup(row))
+
+    terms = [params["term"] for _url, params in client.calls]
+    assert result.status == "not_found"
+    assert terms[0] == "Sayaman R[Author]"
+    assert terms[1] == "\"Rosalyn Sayaman\"[Author]"
+    assert "Title" not in " ".join(terms)
+
+
+def test_pubmed_failure_returns_error_without_crashing_enrichment() -> None:
+    PubMedEmailLookup.reset_rate_limit_state()
+    request = httpx.Request("GET", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi")
+    client = SequenceAsyncClient(
+        [
+            httpx.Response(429, request=request),
+            httpx.Response(429, request=request),
+            httpx.Response(429, request=request),
+            httpx.Response(429, request=request),
+        ]
+    )
+    lookup = PubMedEmailLookup(client=client, min_request_interval_seconds=0, sleep_func=lambda _s: asyncio.sleep(0))
+    enricher = EmailEnricher(
+        EmailEnrichmentConfig(enabled=True, max_researchers=1, sources=["pubmed"]),
+        sources=[lookup],
+    )
+
+    enriched_rows, summary = asyncio.run(enricher.enrich_rows([_row("Ivy Park")]))
+
+    assert enriched_rows[0].email_status == "error"
+    assert "status 429" in (enriched_rows[0].email_notes or "")
+    assert summary["processed"] == 1

@@ -10,6 +10,7 @@ from .profile_sources import (
     SOURCE_FACTORIES,
     ProfileSource,
     build_google_scholar_query_url,
+    has_verified_nih_reporter_pi_url,
 )
 
 
@@ -91,7 +92,7 @@ class ProfileBuilder:
         scholar_url = build_google_scholar_query_url(row)
         if scholar_url and "google_scholar_query_url" not in url_updates:
             url_updates["google_scholar_query_url"] = scholar_url
-            notes.append("Generated Google Scholar query URL.")
+            notes.append("Google Scholar search URL generated.")
 
         profile_source_urls = unique_preserve_order(
             [
@@ -104,9 +105,11 @@ class ProfileBuilder:
         )
         profile_source_urls = [url for url in profile_source_urls if url]
         confidence = _profile_confidence(row, url_updates)
-        status = _profile_status(url_updates, had_error)
+        status = _profile_status(row, url_updates, had_error)
         recommendation = _recommendation_for_row(row, has_profile_links=bool(profile_source_urls))
         summary = _profile_summary(row, has_profile_links=bool(profile_source_urls))
+        if not row.pi_email:
+            notes.append("Email discovery is best effort and may not find public emails.")
 
         return row.model_copy(
             update={
@@ -137,10 +140,12 @@ def _merge_result(url_updates: dict[str, str], result: ProfileSourceResult) -> N
             url_updates[key] = value
 
 
-def _profile_status(url_updates: dict[str, str], had_error: bool) -> str:
+def _profile_status(row: PIOutreachRow, url_updates: dict[str, str], had_error: bool) -> str:
     profile_url_count = len([value for value in url_updates.values() if value])
-    if profile_url_count >= 4:
-        return "enriched"
+    if has_verified_nih_reporter_pi_url(row, url_updates.get("nih_reporter_pi_url")):
+        return "verified_profile_link"
+    if profile_url_count >= 3:
+        return "search_links_generated"
     if profile_url_count >= 1:
         return "partial"
     if had_error:
@@ -149,11 +154,12 @@ def _profile_status(url_updates: dict[str, str], had_error: bool) -> str:
 
 
 def _profile_confidence(row: PIOutreachRow, url_updates: dict[str, str]) -> str:
-    if row.pi_profile_id and url_updates.get("nih_reporter_pi_url"):
-        return "high"
-    if row.organization_name and len([value for value in url_updates.values() if value]) >= 3:
-        return "medium"
-    return "low"
+    profile_url_count = len([value for value in url_updates.values() if value])
+    if has_verified_nih_reporter_pi_url(row, url_updates.get("nih_reporter_pi_url")):
+        return "verified"
+    if profile_url_count >= 1 and row.organization_name:
+        return "search_only" if profile_url_count >= 3 else "likely"
+    return "not_found"
 
 
 def _recommendation_for_row(row: PIOutreachRow, *, has_profile_links: bool) -> str:
@@ -181,7 +187,7 @@ def _profile_summary(row: PIOutreachRow, *, has_profile_links: bool) -> str | No
         else ""
     )
     contact_sentence = (
-        " Public profile links are available to support outreach follow-up."
+        " Public search/profile links are available for manual outreach follow-up."
         if has_profile_links
         else ""
     )

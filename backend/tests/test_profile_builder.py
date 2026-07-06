@@ -63,6 +63,7 @@ def test_profile_urls_generated_correctly() -> None:
     assert "Devin+Mann+New+York+University" in (build_google_scholar_query_url(row) or "")
     assert "pubmed.ncbi.nlm.nih.gov" in (build_pubmed_author_url(row) or "")
     assert "%22Devin+Mann%22%5BAuthor%5D" in (build_pubmed_author_url(row) or "")
+    assert "New+York+University" not in (build_pubmed_author_url(row) or "")
     assert "orcid.org/orcid-search/search" in (build_orcid_search_url(row) or "")
     assert "faculty+profile" in (build_faculty_profile_search_url(row) or "")
 
@@ -75,7 +76,7 @@ def test_profile_summary_is_deterministic() -> None:
     assert enriched_rows[0].researcher_profile_summary == (
         "Devin Mann appears to be a highly relevant outreach candidate because their NIH-funded work "
         "aligns with Artificial Intelligence, Diabetes Mellitus, Health Equity. Recent NIH funding through FY 2026 "
-        "suggests current activity. Public profile links are available to support outreach follow-up."
+        "suggests current activity. Public search/profile links are available for manual outreach follow-up."
     )
 
 
@@ -85,8 +86,8 @@ def test_profile_builder_respects_max_researchers_limit() -> None:
 
     enriched_rows, summary = asyncio.run(builder.enrich_rows(rows))
 
-    assert enriched_rows[0].researcher_profile_status in {"enriched", "partial"}
-    assert enriched_rows[1].researcher_profile_status in {"enriched", "partial"}
+    assert enriched_rows[0].researcher_profile_status in {"verified_profile_link", "search_links_generated", "partial"}
+    assert enriched_rows[1].researcher_profile_status in {"search_links_generated", "partial"}
     assert enriched_rows[2].researcher_profile_status == "skipped"
     assert summary["processed"] == 2
 
@@ -118,6 +119,43 @@ def test_outreach_recommendation_rules_work() -> None:
     assert enriched_rows[3].outreach_recommendation == "low_priority"
 
 
+def test_generated_search_links_are_marked_search_only() -> None:
+    row = PIOutreachRow(
+        pi_name="Rosalyn Wong Sayaman",
+        pi_first_name="Rosalyn",
+        pi_last_name="Sayaman",
+        organization_name="University of California San Francisco",
+        matched_concepts=["Breast Cancer", "Artificial Intelligence"],
+        matched_dimensions=["AI / Data Science"],
+        relevance_score=72,
+        relevance_badge="Moderately Relevant",
+        fiscal_years=[2025],
+        project_ids=["APP-1"],
+        project_numbers=["P-1"],
+    )
+    builder = ProfileBuilder(ProfileEnrichmentConfig(enabled=True, max_researchers=1))
+
+    enriched_rows, _summary = asyncio.run(builder.enrich_rows([row]))
+
+    assert "Rosalyn+Sayaman" in (enriched_rows[0].pubmed_author_url or "")
+    assert enriched_rows[0].researcher_profile_status == "search_links_generated"
+    assert enriched_rows[0].researcher_profile_confidence == "search_only"
+    assert "PubMed author search URL generated." in (enriched_rows[0].profile_notes or "")
+    assert "Google Scholar search URL generated." in (enriched_rows[0].profile_notes or "")
+    assert "Email discovery is best effort and may not find public emails." in (enriched_rows[0].profile_notes or "")
+
+
+def test_verified_confidence_requires_direct_pi_page() -> None:
+    row = _row("Dana Verified", 91)
+    builder = ProfileBuilder(ProfileEnrichmentConfig(enabled=True, max_researchers=1))
+
+    enriched_rows, _summary = asyncio.run(builder.enrich_rows([row]))
+
+    assert enriched_rows[0].nih_reporter_pi_url == "https://reporter.nih.gov/pi-details/PI-Verified"
+    assert enriched_rows[0].researcher_profile_status == "verified_profile_link"
+    assert enriched_rows[0].researcher_profile_confidence == "verified"
+
+
 def test_profile_builder_continues_after_source_failure() -> None:
     rows = [_row("Ivy Park", 88), _row("Jon Mills", 74)]
     source = StaticProfileSource(
@@ -126,12 +164,12 @@ def test_profile_builder_continues_after_source_failure() -> None:
             "Ivy Park": ProfileSourceResult(
                 source="nih_reporter",
                 urls={"nih_reporter_pi_url": "https://reporter.nih.gov/pi-details/PI-Park"},
-                notes=["Direct NIH RePORTER PI profile URL available."],
+                notes=["Direct NIH RePORTER PI URL generated from the PI identifier."],
             ),
             "Jon Mills": ProfileSourceResult(
                 source="nih_reporter",
-                urls={"nih_reporter_pi_url": "https://reporter.nih.gov/project-details/APP-Mills"},
-                notes=["Using NIH RePORTER project page as a profile anchor."],
+                urls={"nih_reporter_pi_url": "https://reporter.nih.gov/search/projects?query=Jon+Mills+New+York+University"},
+                notes=["NIH RePORTER search URL generated from PI name and organization."],
             ),
         },
     )
@@ -144,5 +182,5 @@ def test_profile_builder_continues_after_source_failure() -> None:
 
     assert enriched_rows[0].nih_reporter_pi_url == "https://reporter.nih.gov/pi-details/PI-Park"
     assert "institution_web unavailable" in (enriched_rows[0].profile_notes or "")
-    assert enriched_rows[1].nih_reporter_pi_url == "https://reporter.nih.gov/project-details/APP-Mills"
+    assert enriched_rows[1].nih_reporter_pi_url == "https://reporter.nih.gov/search/projects?query=Jon+Mills+New+York+University"
     assert summary["processed"] == 2

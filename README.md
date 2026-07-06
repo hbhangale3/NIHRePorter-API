@@ -395,6 +395,7 @@ Even when direct email is unavailable, the optional `profile_enrichment` stage m
 - Profile enrichment is disabled by default.
 - It does not scrape Google Scholar or search-engine result pages; it only generates direct query URLs unless an authoritative NIH RePORTER PI URL is already available.
 - Output can include PubMed author queries, ORCID search URLs, Google Scholar queries, NIH RePORTER PI or project links, and faculty-profile search URLs.
+- Profile link confidence uses `verified`, `likely`, `search_only`, and `not_found` to avoid overstating what has been confirmed.
 - `outreach_recommendation` helps triage `priority_contact`, `good_candidate`, `review_manually`, and `low_priority`.
 
 ---
