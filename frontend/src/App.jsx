@@ -6,9 +6,19 @@ const DEFAULT_YAML = `query:
   fiscal_years: [2024, 2025]
   broad_keywords:
     - health disparities
-    - technology
+    - telemedicine
+    - artificial intelligence
   text_search_field: all
   text_search_operator: or
+
+  mesh_expansion:
+    enabled: true
+    max_terms_per_keyword: 15
+    include_entry_terms: true
+    include_tree_children: true
+    max_tree_depth: 1
+    fallback_to_original: true
+    cache_enabled: true
   
   ai_expansion:
     enabled: false
@@ -83,6 +93,7 @@ export default function App() {
   const [message, setMessage] = useState(null)
   const [summary, setSummary] = useState(null)
   const [keywordExpansions, setKeywordExpansions] = useState(null)
+  const [expansionTrace, setExpansionTrace] = useState(null)
 
   const [rows,   setRows]   = useState([])
   const [total,  setTotal]  = useState(0)
@@ -113,7 +124,7 @@ export default function App() {
   }
 
   async function startRun() {
-    setBusy(true); setMessage(null); setSummary(null); setKeywordExpansions(null)
+    setBusy(true); setMessage(null); setSummary(null); setKeywordExpansions(null); setExpansionTrace(null)
     setRows([]); setTotal(0); setOffset(0)
     try {
       const resp = await fetch('/api/runs', {
@@ -140,6 +151,7 @@ export default function App() {
       setStatus(data.status)
       if (data.message) setMessage(data.message)
       if (data.keyword_expansions) setKeywordExpansions(data.keyword_expansions)
+      if (data.expansion_trace) setExpansionTrace(data.expansion_trace)
       if (data.status === 'completed') { await loadResults(id, 0); return }
       if (data.status === 'failed')    return
       await new Promise(r => setTimeout(r, 1000))
@@ -334,6 +346,39 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {expansionTrace && (
+            <div className="card">
+              <p className="card-title">Search Expansion Trace</p>
+              <div style={{ fontSize: 12, color: '#5a7299', marginBottom: 8 }}>Original keywords:</div>
+              <div style={{ fontSize: 12, color: '#c8d8f0', lineHeight: 1.6, marginBottom: 14 }}>
+                {(expansionTrace.original_keywords || []).join(', ') || 'None'}
+              </div>
+
+              <div style={{ fontSize: 12, color: '#5a7299', marginBottom: 8 }}>
+                MeSH expansion: {expansionTrace.mesh?.enabled ? 'enabled' : 'disabled'}
+              </div>
+              {expansionTrace.mesh?.enabled && (
+                <div style={{ marginBottom: 14 }}>
+                  {Object.entries(expansionTrace.mesh?.terms_by_keyword || {}).map(([original, expanded]) => (
+                    <div key={original} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#93c5fd', marginBottom: 4 }}>
+                        {original} →
+                      </div>
+                      <div style={{ fontSize: 11, color: '#8b9dc3', lineHeight: 1.5 }}>
+                        {Array.isArray(expanded) && expanded.length ? expanded.join(', ') : 'No additional MeSH terms'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ fontSize: 12, color: '#5a7299', marginBottom: 8 }}>Final NIH search terms:</div>
+              <div style={{ fontSize: 12, color: '#c8d8f0', lineHeight: 1.6 }}>
+                {(expansionTrace.final_keywords || []).join(', ') || 'None'}
+              </div>
             </div>
           )}
 

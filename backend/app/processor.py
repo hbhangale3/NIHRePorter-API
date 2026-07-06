@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import logging
 from typing import Any
 
 from .models import AppConfig, PIOutreachRow, TopicConfig
 from .settings import settings
 from .topic_matcher import match_topic
 from .utils import normalize_text, split_name, unique_preserve_order
+
+
+logger = logging.getLogger(__name__)
 
 
 def _project_text(project: dict[str, Any]) -> str:
@@ -128,11 +132,15 @@ def build_outreach_rows(projects: list[dict[str, Any]], config: AppConfig) -> tu
     per_year_counts: dict[int, int] = defaultdict(int)
     per_admin_ic_counts: dict[str, int] = defaultdict(int)
 
+    logger.info("Local filtering: received %d raw NIH projects", len(projects))
+
+    matched_project_records = 0
     for project in projects:
         text = _project_text(project)
         matched_topics, _ = _match_topics(text, config.topics)
         if not matched_topics:
             continue
+        matched_project_records += 1
 
         core_num = _pick_core_project_num(project)
         if not core_num:
@@ -255,5 +263,12 @@ def build_outreach_rows(projects: list[dict[str, Any]], config: AppConfig) -> tu
         "counts_by_year": dict(sorted(per_year_counts.items(), key=lambda kv: kv[0])),
         "counts_by_admin_ic": dict(sorted(per_admin_ic_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
     }
+
+    logger.info(
+        "Local filtering: matched project records=%d; grouped core projects=%d; outreach rows=%d",
+        matched_project_records,
+        len(grouped),
+        len(out_rows),
+    )
 
     return out_rows, summary

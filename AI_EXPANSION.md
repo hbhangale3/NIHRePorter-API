@@ -17,11 +17,16 @@ AI expansion solves this by intelligently expanding your keywords before queryin
 ## How It Works
 
 1. **You provide** broad keywords (e.g., "health disparities", "technology")
-2. **AI generates** related terms using GPT-4o-mini (or your chosen model)
-3. **Expanded query** searches NIH with all variations
-4. **Results show** which expansions were used for transparency
+2. **Optional MeSH expansion** can add biomedical concept terminology first
+3. **AI generates** related terms using GPT-4o-mini (or your chosen model)
+4. **Expanded query** searches NIH with all variations
+5. **Results show** which expansions were used for transparency
 
 ## Configuration
+
+AI expansion now runs after the optional MeSH stage:
+
+`YAML Keywords → Optional MeSH Expansion → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
 
 Add the `ai_expansion` section to your YAML config:
 

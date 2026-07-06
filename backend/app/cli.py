@@ -21,12 +21,16 @@ def main() -> None:
 
     config_yaml = config_path.read_text(encoding="utf-8")
 
-    results, summary, keyword_expansions = run_pipeline(config_yaml, max_pages=args.max_pages)
+    results, summary, keyword_expansions, expansion_trace = run_pipeline(
+        config_yaml,
+        max_pages=args.max_pages,
+    )
 
     (out_dir / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     if keyword_expansions:
         (out_dir / "keyword_expansions.json").write_text(json.dumps(keyword_expansions, indent=2), encoding="utf-8")
+    (out_dir / "expansion_trace.json").write_text(json.dumps(expansion_trace, indent=2), encoding="utf-8")
 
     # CSV generation via local import to keep CSV schema consistent
     from .models import PIOutreachRow

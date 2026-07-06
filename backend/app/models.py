@@ -21,11 +21,22 @@ class AIExpansionConfig(BaseModel):
     context: str = "biomedical research and health disparities"
 
 
+class MeshExpansionConfig(BaseModel):
+    enabled: bool = False
+    max_terms_per_keyword: int = 15
+    include_entry_terms: bool = True
+    include_tree_children: bool = True
+    max_tree_depth: int = 1
+    fallback_to_original: bool = True
+    cache_enabled: bool = True
+
+
 class QueryConfig(BaseModel):
     fiscal_years: list[int] = Field(default_factory=list)
     broad_keywords: list[str] = Field(default_factory=list)
     text_search_field: str = "all"
     text_search_operator: Literal["and", "or"] = "and"
+    mesh_expansion: MeshExpansionConfig = Field(default_factory=MeshExpansionConfig)
     ai_expansion: AIExpansionConfig = Field(default_factory=AIExpansionConfig)
 
 
@@ -52,6 +63,7 @@ class RunStatus(BaseModel):
     message: str | None = None
     progress: dict[str, Any] = Field(default_factory=dict)
     keyword_expansions: dict[str, list[str]] | None = None
+    expansion_trace: dict[str, Any] | None = None
 
 
 class PIOutreachRow(BaseModel):

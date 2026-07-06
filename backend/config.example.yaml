@@ -2,13 +2,26 @@ query:
   fiscal_years: [2024, 2025]
   broad_keywords:
     - health disparities
-    - technology
+    - telemedicine
+    - artificial intelligence
   text_search_field: all
   text_search_operator: or
+
+  # Optional: MeSH concept expansion reduces dependence on exact search terms.
+  # It uses National Library of Medicine MeSH terminology before the NIH search.
+  # If disabled or unavailable, the pipeline falls back to the original keywords.
+  mesh_expansion:
+    enabled: true
+    max_terms_per_keyword: 15
+    include_entry_terms: true
+    include_tree_children: true
+    max_tree_depth: 1
+    fallback_to_original: true
+    cache_enabled: true
   
   # AI-powered keyword expansion (optional)
   ai_expansion:
-    enabled: true  # Set to true to enable AI expansion
+    enabled: false  # Set to true to enable AI expansion after MeSH expansion
     openai_api_key: null  # Set via OPENAI_API_KEY env var, or paste your key here
     model: gpt-4o-mini  # Options: gpt-4o-mini, gpt-4o, gpt-3.5-turbo
     max_expansions_per_keyword: 5  # Max synonyms/variations per keyword

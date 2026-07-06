@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from typing import Any
 
 import httpx
 
 from .cache import cache_key, make_cache
 from .settings import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReporterClient:
@@ -60,6 +65,11 @@ class ReporterClient:
         if include_fields:
             payload["include_fields"] = include_fields
 
+        logger.info(
+            "NIH RePORTER request payload=%s",
+            json.dumps(payload, sort_keys=True),
+        )
+
         return await self.post_json_cached("/projects/search", payload)
 
     async def fetch_all_projects(
@@ -88,6 +98,14 @@ class ReporterClient:
             projects = data.get("results") or []
             if not isinstance(projects, list):
                 break
+
+            logger.info(
+                "NIH RePORTER page fetched: page=%d offset=%d page_results=%d total=%s",
+                page + 1,
+                offset,
+                len(projects),
+                data.get("meta", {}).get("total"),
+            )
 
             all_projects.extend(projects)
 

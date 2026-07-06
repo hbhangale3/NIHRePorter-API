@@ -37,13 +37,17 @@ async def _execute_run(run_id: str) -> None:
 
     run_store.update(run_id, status="running", message=None, progress={"stage": "querying"})
     try:
-        results, summary, keyword_expansions = await run_pipeline_async(rec.config_yaml, max_pages=rec.max_pages)
+        results, summary, keyword_expansions, expansion_trace = await run_pipeline_async(
+            rec.config_yaml,
+            max_pages=rec.max_pages,
+        )
         run_store.update(
             run_id,
             status="completed",
             results=results,
             summary=summary,
             keyword_expansions=keyword_expansions,
+            expansion_trace=expansion_trace,
             progress={"stage": "completed"},
         )
     except Exception as e:
@@ -59,7 +63,8 @@ async def create_run(req: RunRequest, background_tasks: BackgroundTasks) -> RunS
         status=rec.status, 
         message=rec.message, 
         progress=rec.progress or {},
-        keyword_expansions=None
+        keyword_expansions=None,
+        expansion_trace=None,
     )
 
 
@@ -73,7 +78,8 @@ def get_run(run_id: str) -> RunStatus:
         status=rec.status, 
         message=rec.message, 
         progress=rec.progress or {},
-        keyword_expansions=rec.keyword_expansions
+        keyword_expansions=rec.keyword_expansions,
+        expansion_trace=rec.expansion_trace,
     )
 
 

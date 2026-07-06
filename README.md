@@ -60,7 +60,8 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 ## Features
 
 - **Two-stage filtering** — broad NIH API query + strict local topic matching
-- **AI keyword expansion** — automatically expands search terms with synonyms, acronyms, and variations (optional, requires OpenAI API key)
+- **MeSH concept expansion** — expands search terms with National Library of Medicine biomedical terminology before NIH search (optional, with graceful fallback)
+- **AI keyword expansion** — automatically expands search terms with synonyms, acronyms, and variations after MeSH expansion (optional, requires OpenAI API key)
 - **AI config suggestion** — describe a research topic in plain English; the app generates `broad_keywords` and `topic_terms` for you
 - **PI deduplication** — groups projects by `core_project_num` (year-invariant), derives PI info from the most recent fiscal year
 - **Multi-year aggregation** — collects funding, dates, and abstracts across all fiscal years per project
@@ -83,6 +84,7 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 │       ├── reporter_client.py       # NIH API client (async, cached)
 │       ├── processor.py             # Topic matching + PI aggregation
 │       ├── topic_matcher.py         # include/exclude/co_require logic
+│       ├── mesh_expander.py         # NLM MeSH concept expansion
 │       ├── keyword_expander.py      # OpenAI keyword expansion
 │       ├── keyword_suggester.py     # OpenAI config suggestion
 │       ├── models.py                # Pydantic data models
@@ -144,6 +146,16 @@ query:
   text_search_field: all              # 'all' | 'title' | 'abstract' | 'terms'
   text_search_operator: or            # 'or' (broader) | 'and' (stricter)
 
+  # Optional: MeSH concept expansion
+  mesh_expansion:
+    enabled: true
+    max_terms_per_keyword: 15
+    include_entry_terms: true
+    include_tree_children: true
+    max_tree_depth: 1
+    fallback_to_original: true
+    cache_enabled: true
+
   # Optional: AI-powered keyword expansion
   ai_expansion:
     enabled: false
@@ -199,7 +211,7 @@ A project can match multiple topics — the `matched_topics` field records which
 |---|---|---|
 | `GET` | `/api/health` | Liveness check |
 | `POST` | `/api/runs` | Start a pipeline run (async) |
-| `GET` | `/api/runs/{run_id}` | Poll run status & keyword expansions |
+| `GET` | `/api/runs/{run_id}` | Poll run status, MeSH trace, and keyword expansions |
 | `GET` | `/api/runs/{run_id}/results` | Paginated results (`offset`, `limit`) |
 | `GET` | `/api/runs/{run_id}/export.csv` | Download full CSV |
 | `POST` | `/api/suggest-keywords` | AI topic → config suggestion |
@@ -230,6 +242,39 @@ All variables are prefixed with `OUTREACH_`:
 | `OPENAI_API_KEY` | — | OpenAI API key for AI features |
 
 Create a `.env` file in the `backend/` directory or export these before starting the server.
+
+---
+
+## MeSH Concept Expansion
+
+The original limitation in this project was exact keyword dependency. If a user searched for `telemedicine`, `health disparities`, or `artificial intelligence`, the NIH query depended on investigators using those exact words in searchable text.
+
+To reduce that fragility, the backend now supports an optional MeSH preprocessing stage that expands YAML `broad_keywords` with National Library of Medicine biomedical terminology before the existing NIH RePORTER query is built.
+
+Before:
+`YAML Keywords → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
+
+After:
+`YAML Keywords → Optional MeSH Expansion → Optional AI Expansion → NIH RePORTER → Filtering → PI CSV`
+
+Enable it in YAML:
+
+```yaml
+query:
+  broad_keywords:
+    - telemedicine
+    - health disparities
+  mesh_expansion:
+    enabled: true
+    max_terms_per_keyword: 15
+    include_entry_terms: true
+    include_tree_children: true
+    max_tree_depth: 1
+    fallback_to_original: true
+    cache_enabled: true
+```
+
+MeSH expansion is optional. If the block is omitted, the app behaves like the original version. If MeSH lookup is unavailable, the run falls back to the original keywords and downstream NIH search, PI extraction, local filtering, and CSV export remain unchanged. Email enrichment is still intentionally deferred because NIH RePORTER does not expose PI emails directly in a reliable way.
 
 ---
 
