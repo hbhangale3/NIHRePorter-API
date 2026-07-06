@@ -17,6 +17,8 @@ CSV_COLUMNS = [
     "email_source_url",
     "email_status",
     "email_notes",
+    "email_candidate_rejected",
+    "email_rejection_reason",
     "researcher_profile_status",
     "researcher_profile_summary",
     "researcher_profile_confidence",

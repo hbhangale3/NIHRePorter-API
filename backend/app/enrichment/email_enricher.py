@@ -7,7 +7,12 @@ from typing import Protocol
 import httpx
 
 from ..models import EmailEnrichmentConfig, PIOutreachRow
-from .email_utils import EmailCandidate, SourceLookupResult, choose_best_candidate
+from .email_utils import (
+    EmailCandidate,
+    SourceLookupResult,
+    choose_best_candidate,
+    choose_best_rejected_candidate,
+)
 from .institution_search import InstitutionWebLookup
 from .orcid_lookup import OrcidLookup
 from .pubmed_email import PubMedEmailLookup
@@ -87,6 +92,8 @@ class EmailEnricher:
                     "email_source": row.email_source or "nih_reporter",
                     "email_status": row.email_status or "found_high_confidence",
                     "email_notes": row.email_notes or "Existing PI email preserved from source data.",
+                    "email_candidate_rejected": None,
+                    "email_rejection_reason": None,
                 }
             )
 
@@ -99,6 +106,7 @@ class EmailEnricher:
             )
 
         candidates: list[EmailCandidate] = []
+        rejected_candidates: list[EmailCandidate] = []
         notes: list[str] = []
         saw_non_skipped = False
         saw_non_error_result = False
@@ -124,6 +132,8 @@ class EmailEnricher:
                 saw_non_skipped = True
             if result.candidate is not None:
                 candidates.append(result.candidate)
+            if result.rejected_candidate is not None:
+                rejected_candidates.append(result.rejected_candidate)
 
         best = choose_best_candidate(candidates, require_high_confidence=self.config.require_high_confidence)
         if best is not None:
@@ -135,16 +145,37 @@ class EmailEnricher:
                     "email_source_url": best.source_url,
                     "email_status": f"found_{best.confidence}_confidence",
                     "email_notes": best.notes or " ".join(notes).strip() or None,
+                    "email_candidate_rejected": None,
+                    "email_rejection_reason": None,
+                }
+            )
+
+        rejected = choose_best_rejected_candidate(rejected_candidates)
+        if rejected is not None:
+            notes.append(rejected.rejection_reason or "Email candidate was withheld pending manual review.")
+            return row.model_copy(
+                update={
+                    "email_confidence": "withheld",
+                    "email_source": rejected.source,
+                    "email_source_url": rejected.source_url,
+                    "email_status": "manual_review_required",
+                    "email_notes": " ".join(notes).strip() or rejected.notes,
+                    "email_candidate_rejected": rejected.email,
+                    "email_rejection_reason": rejected.rejection_reason,
                 }
             )
 
         status = "error" if had_error and not saw_non_error_result else "not_found" if saw_non_skipped else "skipped"
+        confidence = "none" if status in {"not_found", "skipped"} else None
         if self.config.require_high_confidence and candidates:
-            notes.append("Only low or medium confidence candidates were found, so none were kept.")
+            notes.append("Only medium confidence candidates were found, so none were kept because high confidence was required.")
         return row.model_copy(
             update={
                 "email_status": status,
+                "email_confidence": confidence,
                 "email_notes": " ".join(notes).strip() or "No public email found.",
+                "email_candidate_rejected": None,
+                "email_rejection_reason": None,
             }
         )
 

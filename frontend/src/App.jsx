@@ -326,6 +326,12 @@ function emailConfidenceTone(confidence) {
   return 'weak'
 }
 
+function emailStatusLabel(status) {
+  if (status === 'manual_review_required') return 'Email candidate withheld for manual review'
+  if (!status) return 'Email status unavailable'
+  return `Email status: ${status.replaceAll('_', ' ')}`
+}
+
 function recommendationTone(recommendation) {
   if (recommendation === 'priority_contact') return 'high'
   if (recommendation === 'good_candidate') return 'moderate'
@@ -1659,7 +1665,7 @@ export default function App() {
                           ) : r.email_status ? (
                             <div className="email-enrichment-block">
                               <div className="email-meta">
-                                <span>Email status: {r.email_status.replaceAll('_', ' ')}</span>
+                                <span>{emailStatusLabel(r.email_status)}</span>
                               </div>
                               {r.email_notes ? <div className="detail-meta-line">{r.email_notes}</div> : null}
                             </div>

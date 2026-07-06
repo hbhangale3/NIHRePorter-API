@@ -115,6 +115,8 @@ class PIOutreachRow(BaseModel):
     email_source_url: str | None = None
     email_status: str | None = None
     email_notes: str | None = None
+    email_candidate_rejected: str | None = None
+    email_rejection_reason: str | None = None
     researcher_profile_status: str | None = None
     researcher_profile_summary: str | None = None
     researcher_profile_confidence: str | None = None

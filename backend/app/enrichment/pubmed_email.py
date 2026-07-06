@@ -8,7 +8,13 @@ import httpx
 
 from ..models import PIOutreachRow
 from ..utils import normalize_text
-from .email_utils import SourceLookupResult, choose_best_candidate, extract_emails, score_email_candidate
+from .email_utils import (
+    SourceLookupResult,
+    choose_best_candidate,
+    choose_best_rejected_candidate,
+    extract_emails,
+    score_email_candidate,
+)
 
 
 class PubMedEmailLookup:
@@ -114,22 +120,25 @@ class PubMedEmailLookup:
 
         root = ET.fromstring(fetch_response.text)
         candidates = []
-        for article in root.findall(".//PubmedArticle"):
+        rejected_candidates = []
+        for article, pmid in zip(root.findall(".//PubmedArticle"), ids[: self.max_pages_per_researcher], strict=False):
             article_text = " ".join(text.strip() for text in article.itertext() if text and text.strip())
             emails = extract_emails(article_text)
             for email in emails:
-                candidates.append(
-                    score_email_candidate(
-                        email=email,
-                        source=self.name,
-                        source_url=f"https://pubmed.ncbi.nlm.nih.gov/{ids[0]}/",
-                        page_text=article_text,
-                        pi_name=row.pi_name,
-                        pi_first_name=row.pi_first_name,
-                        pi_last_name=row.pi_last_name,
-                        organization_name=row.organization_name,
-                    )
+                scored = score_email_candidate(
+                    email=email,
+                    source=self.name,
+                    source_url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    page_text=article_text,
+                    pi_name=row.pi_name,
+                    pi_first_name=row.pi_first_name,
+                    pi_last_name=row.pi_last_name,
+                    organization_name=row.organization_name,
                 )
+                if scored.confidence in {"high", "medium"}:
+                    candidates.append(scored)
+                else:
+                    rejected_candidates.append(scored)
 
         best = choose_best_candidate(candidates)
         if best is not None:
@@ -139,6 +148,21 @@ class PubMedEmailLookup:
                 candidate=best,
                 source_url=best.source_url,
                 notes=best.notes or (f"Matched via PubMed query: {query_used}" if query_used else None),
+            )
+            self._lookup_cache[cache_key] = result
+            return result
+
+        rejected = choose_best_rejected_candidate(rejected_candidates)
+        if rejected is not None:
+            result = SourceLookupResult(
+                source=self.name,
+                status="manual_review_required",
+                rejected_candidate=rejected,
+                source_url=rejected.source_url,
+                notes=(
+                    rejected.rejection_reason
+                    or "PubMed found an email candidate, but it did not match the target PI name strongly enough."
+                ),
             )
             self._lookup_cache[cache_key] = result
             return result
