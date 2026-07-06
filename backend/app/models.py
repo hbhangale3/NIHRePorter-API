@@ -108,6 +108,9 @@ class PIOutreachRow(BaseModel):
 
     relevance_score: int = 0
     matched_dimensions: list[str] = Field(default_factory=list)
+    missing_dimensions: list[str] = Field(default_factory=list)
+    dimension_match_count: int = 0
+    dimension_coverage_ratio: float = 0.0
     matched_concepts: list[str] = Field(default_factory=list)
     reasoning: str | None = None
     semantic_similarity: float | None = None

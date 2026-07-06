@@ -1,49 +1,57 @@
 from __future__ import annotations
 
-from ..utils import unique_preserve_order
-
-
 def relevance_badge_for_score(score: int) -> str:
-    if score >= 90:
+    if score >= 80:
         return "Highly Relevant"
-    if score >= 75:
-        return "Moderately Relevant"
     if score >= 60:
+        return "Moderately Relevant"
+    if score >= 40:
         return "Weak Match"
-    return "Low Match"
+    return "Low Relevance"
 
 
 def build_reasoning(
     *,
-    exact_topic_score: int,
+    score: int,
+    matched_dimensions: list[str],
+    missing_dimensions: list[str],
+    matched_concepts: list[str],
     mesh_matches: list[str],
-    semantic_score: int,
-    population_match: bool,
-    ai_match: bool,
-    disease_match: bool,
+    semantic_similarity: float,
     recent_funding_score: int,
-) -> tuple[list[str], str]:
-    dimensions: list[str] = []
+) -> str:
+    if score >= 80:
+        strength = "Strong match"
+        candidate_line = "This looks like a strong outreach candidate."
+    elif score >= 60:
+        strength = "Moderate match"
+        candidate_line = "This looks like a reasonable outreach candidate with some gaps."
+    elif score >= 40:
+        strength = "Weak match"
+        candidate_line = "This project overlaps part of the query but is missing important dimensions."
+    else:
+        strength = "Low relevance"
+        candidate_line = "This project does not align closely enough to prioritize for outreach."
 
-    if exact_topic_score > 0:
-        dimensions.append("Exact topic wording matched in title")
+    detail_parts: list[str] = []
+    if matched_dimensions:
+        detail_parts.append(f"Matched dimensions: {', '.join(matched_dimensions)}")
+    if missing_dimensions:
+        detail_parts.append(f"Missing dimensions: {', '.join(missing_dimensions)}")
+    if matched_concepts:
+        detail_parts.append(f"Matched concepts include {', '.join(matched_concepts[:6])}")
     if mesh_matches:
-        dimensions.append("MeSH concepts overlapped expanded terms")
-    if semantic_score >= 16:
-        dimensions.append("High semantic similarity")
-    elif semantic_score > 0:
-        dimensions.append("Moderate semantic similarity")
-    if population_match:
-        dimensions.append("Health equity or underserved population terms matched")
-    if ai_match:
-        dimensions.append("AI concepts matched")
-    if disease_match:
-        dimensions.append("Diabetes concepts matched")
-    if recent_funding_score > 0:
-        dimensions.append("Recent NIH funding activity")
+        detail_parts.append(f"MeSH overlap: {', '.join(mesh_matches[:5])}")
+    if semantic_similarity >= 0.75:
+        detail_parts.append("Semantic alignment is high across the retrieved set")
+    elif semantic_similarity >= 0.45:
+        detail_parts.append("Semantic alignment is moderate across the retrieved set")
+    elif semantic_similarity > 0:
+        detail_parts.append("Semantic alignment is limited across the retrieved set")
+    if recent_funding_score >= 5:
+        detail_parts.append("Recent NIH funding strengthens relevance")
 
-    ordered = unique_preserve_order(dimensions)
-    if not ordered:
-        return [], "No strong relevance signals matched the current research question."
-    reasoning = " ; ".join(f"✓ {dimension}" for dimension in ordered)
-    return ordered, reasoning
+    if not detail_parts:
+        detail_parts.append("No strong dimension or semantic signals were detected")
+
+    return f"{strength}: {'; '.join(detail_parts)}. {candidate_line}"

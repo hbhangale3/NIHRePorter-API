@@ -11,7 +11,6 @@ from ..semantic.embedding_model import EmbeddingModel
 @dataclass(slots=True)
 class SemanticScoreResult:
     similarity: float
-    score: int
 
 
 class SemanticSimilarityScorer:
@@ -28,13 +27,13 @@ class SemanticSimilarityScorer:
             document_vectors = self.embedding_model.embed_texts(texts, batch_size=32)
         except Exception:
             return {
-                _row_key(row, index): SemanticScoreResult(similarity=0.0, score=0)
+                _row_key(row, index): SemanticScoreResult(similarity=0.0)
                 for index, row in enumerate(rows)
             }
 
         if query_vector.size == 0 or document_vectors.size == 0:
             return {
-                _row_key(row, index): SemanticScoreResult(similarity=0.0, score=0)
+                _row_key(row, index): SemanticScoreResult(similarity=0.0)
                 for index, row in enumerate(rows)
             }
 
@@ -42,22 +41,9 @@ class SemanticSimilarityScorer:
         return {
             _row_key(row, index): SemanticScoreResult(
                 similarity=float(similarities[index]),
-                score=_semantic_points(float(similarities[index])),
             )
             for index, row in enumerate(rows)
         }
-
-
-def _semantic_points(similarity: float) -> int:
-    if similarity >= 0.75:
-        return 20
-    if similarity >= 0.6:
-        return 16
-    if similarity >= 0.5:
-        return 12
-    if similarity >= 0.4:
-        return 8
-    return 0
 
 
 def _row_text(row: PIOutreachRow) -> str:

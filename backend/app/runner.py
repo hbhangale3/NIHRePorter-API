@@ -81,6 +81,15 @@ def _resolve_research_question(config: AppConfig, original_keywords: list[str]) 
     return " ".join(original_keywords).strip()
 
 
+def _flatten_trace_terms(terms_by_keyword: dict[str, list[str]]) -> list[str]:
+    flattened: list[str] = []
+    for terms in terms_by_keyword.values():
+        if not isinstance(terms, list):
+            continue
+        flattened.extend(str(term) for term in terms if str(term).strip())
+    return _deduplicate_terms_case_insensitive(flattened)
+
+
 async def run_pipeline_async(
     config_yaml: str,
     *,
@@ -191,6 +200,15 @@ async def run_pipeline_async(
     ranking_context = OutreachRankingContext(
         research_question=research_question,
         expanded_terms=current_keywords,
+        selected_concepts=original_keywords,
+        final_keywords=current_keywords,
+        mesh_terms=_flatten_trace_terms(mesh_trace),
+        semantic_terms=list(semantic_trace["expanded_terms"]),
+        semantic_concepts=[
+            str(concept.get("preferred_name"))
+            for concept in semantic_trace["concepts"]
+            if isinstance(concept, dict) and concept.get("preferred_name")
+        ],
     )
     ranking_scorer = OutreachRankingScorer()
     rows, ranking_summary = ranking_scorer.rank_rows(rows, ranking_context)
