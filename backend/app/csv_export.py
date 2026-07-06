@@ -30,6 +30,16 @@ CSV_COLUMNS = [
     "total_funding_amount",
     "project_start_date",
     "project_end_date",
+    "relevance_score",
+    "relevance_badge",
+    "matched_concepts",
+    "matched_dimensions",
+    "reasoning",
+    "semantic_similarity",
+    "mesh_matches",
+    "ai_match",
+    "disease_match",
+    "population_match",
 ]
 
 
@@ -47,6 +57,9 @@ def rows_to_csv_bytes(rows: list[PIOutreachRow]) -> bytes:
             "project_terms",
             "project_ids",
             "project_urls",
+            "matched_concepts",
+            "matched_dimensions",
+            "mesh_matches",
         ]:
             if isinstance(d.get(k), list):
                 d[k] = "; ".join([str(x) for x in d[k]])

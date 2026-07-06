@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from .concept_suggester import ConceptSuggester
 from .csv_export import rows_to_csv_bytes
 from .models import RunRequest, RunStatus
+from .ranking import relevance_badge_for_score
 from .run_store import run_store
 from .runner import run_pipeline_async
 from .keyword_suggester import KeywordSuggester
@@ -29,6 +30,29 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _filtered_results(
+    results: list[dict[str, Any]],
+    *,
+    min_relevance_score: int | None = None,
+    only_highly_relevant: bool = False,
+    only_ai: bool = False,
+    only_population: bool = False,
+    only_disease: bool = False,
+) -> list[dict[str, Any]]:
+    filtered = list(results)
+    if min_relevance_score is not None:
+        filtered = [item for item in filtered if int(item.get("relevance_score") or 0) >= min_relevance_score]
+    if only_highly_relevant:
+        filtered = [item for item in filtered if relevance_badge_for_score(int(item.get("relevance_score") or 0)) == "Highly Relevant"]
+    if only_ai:
+        filtered = [item for item in filtered if bool(item.get("ai_match"))]
+    if only_population:
+        filtered = [item for item in filtered if bool(item.get("population_match"))]
+    if only_disease:
+        filtered = [item for item in filtered if bool(item.get("disease_match"))]
+    return filtered
 
 
 async def _execute_run(run_id: str) -> None:
@@ -85,15 +109,32 @@ def get_run(run_id: str) -> RunStatus:
 
 
 @app.get("/api/runs/{run_id}/results")
-def get_results(run_id: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+def get_results(
+    run_id: str,
+    offset: int = 0,
+    limit: int = 100,
+    min_relevance_score: int | None = None,
+    only_highly_relevant: bool = False,
+    only_ai: bool = False,
+    only_population: bool = False,
+    only_disease: bool = False,
+) -> dict[str, Any]:
     rec = run_store.get(run_id)
     if rec is None:
         raise HTTPException(status_code=404, detail="run not found")
     if rec.status != "completed" or rec.results is None:
         raise HTTPException(status_code=409, detail="results not available")
 
-    total = len(rec.results)
-    items = rec.results[offset : offset + limit]
+    filtered = _filtered_results(
+        rec.results,
+        min_relevance_score=min_relevance_score,
+        only_highly_relevant=only_highly_relevant,
+        only_ai=only_ai,
+        only_population=only_population,
+        only_disease=only_disease,
+    )
+    total = len(filtered)
+    items = filtered[offset : offset + limit]
     return {"total": total, "offset": offset, "limit": limit, "items": items, "summary": rec.summary or {}}
 
 

@@ -11,6 +11,7 @@ from .reporter_client import ReporterClient
 from .processor import build_outreach_rows
 from .keyword_expander import KeywordExpander
 from .mesh_expander import MeshExpander
+from .ranking import OutreachRankingContext, OutreachRankingScorer
 from .semantic import MeshSemanticRetriever
 
 
@@ -70,6 +71,16 @@ def _build_stage1_criteria(config: AppConfig, expanded_keywords: list[str] | Non
     return criteria
 
 
+def _resolve_research_question(config: AppConfig, original_keywords: list[str]) -> str:
+    if config.query.research_question and config.query.research_question.strip():
+        return config.query.research_question.strip()
+    if config.topics:
+        topic_name = config.topics[0].name.strip()
+        if topic_name:
+            return topic_name
+    return " ".join(original_keywords).strip()
+
+
 async def run_pipeline_async(
     config_yaml: str,
     *,
@@ -78,6 +89,7 @@ async def run_pipeline_async(
     config = load_config_from_yaml_str(config_yaml)
 
     original_keywords = list(config.query.broad_keywords)
+    research_question = _resolve_research_question(config, original_keywords)
     current_keywords = _deduplicate_terms_case_insensitive(original_keywords)
     mesh_trace: dict[str, list[str]] = {}
     keyword_expansions: dict[str, list[str]] = {}
@@ -176,6 +188,13 @@ async def run_pipeline_async(
     logger.info("Semantic terms available to run=%s", bool(semantic_trace["expanded_terms"]))
 
     rows, summary = build_outreach_rows(projects, config)
+    ranking_context = OutreachRankingContext(
+        research_question=research_question,
+        expanded_terms=current_keywords,
+    )
+    ranking_scorer = OutreachRankingScorer()
+    rows, ranking_summary = ranking_scorer.rank_rows(rows, ranking_context)
+    summary["ranking"] = ranking_summary
     logger.info(
         "NIH projects after local filtering=%d; unique outreach rows=%d",
         summary.get("matched_project_count", 0),

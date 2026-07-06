@@ -37,6 +37,12 @@ The frontend now defaults to a research-question workflow:
 
 Suggested concepts are MeSH-grounded when the semantic index is available, fall back to local MeSH lookup when possible, and otherwise degrade to simple local phrase extraction. Advanced YAML remains available for power users.
 
+Completed runs are then ranked by a modular relevance engine before the results table and CSV export are generated:
+
+`Retrieve → Rank → Export`
+
+The ranking layer is intentionally separate from the NIH client so it can be swapped later for an LLM reranker without changing retrieval.
+
 ## MeSH Concept Expansion
 
 The backend now supports an optional `query.mesh_expansion` block that expands `broad_keywords` with NLM MeSH terminology before the existing NIH RePORTER search.

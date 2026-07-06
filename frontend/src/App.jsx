@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import yaml from 'js-yaml'
 import './styles.css'
 
 const DEFAULT_YAML = `query:
+  research_question: AI for diabetes care in underserved populations
   fiscal_years: [2024, 2025]
   broad_keywords:
     - health disparities
@@ -160,6 +161,7 @@ function createConfigFromBuilder(builder) {
 
   return {
     query: {
+      research_question: builder.researchQuestion.trim() || null,
       fiscal_years: parseFiscalYears(builder.fiscalYearsText),
       broad_keywords: broadKeywords,
       text_search_field: builder.textSearchField,
@@ -217,9 +219,10 @@ function builderFromConfigObject(config) {
   const aiContext = config?.query?.ai_expansion?.context
   return {
     researchQuestion:
-      typeof aiContext === 'string' && aiContext !== DEFAULT_AI_CONTEXT
+      config?.query?.research_question ||
+      (typeof aiContext === 'string' && aiContext !== DEFAULT_AI_CONTEXT
         ? aiContext
-        : config?.topics?.[0]?.name || '',
+        : config?.topics?.[0]?.name || ''),
     concepts: normalizeConceptsFromYaml(config),
     fiscalYearsText: Array.isArray(config?.query?.fiscal_years)
       ? config.query.fiscal_years.join(', ')
@@ -254,6 +257,28 @@ function conceptSourceLabel(source) {
   if (source === 'mesh_lookup') return 'Official MeSH'
   if (source === 'fallback') return 'Fallback'
   return 'Manual'
+}
+
+function buildResultsQueryString(filters, offset, limit) {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  })
+
+  if (filters.minScore !== '') params.set('min_relevance_score', filters.minScore)
+  if (filters.onlyHighlyRelevant) params.set('only_highly_relevant', 'true')
+  if (filters.onlyAiProjects) params.set('only_ai', 'true')
+  if (filters.onlyHealthEquity) params.set('only_population', 'true')
+  if (filters.onlyDiabetes) params.set('only_disease', 'true')
+
+  return params.toString()
+}
+
+function relevanceBadgeTone(label) {
+  if (label === 'Highly Relevant') return 'high'
+  if (label === 'Moderately Relevant') return 'moderate'
+  if (label === 'Weak Match') return 'weak'
+  return 'low'
 }
 
 function TopicTag({ name, index }) {
@@ -342,6 +367,13 @@ export default function App() {
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const limit = 50
+  const [resultFilters, setResultFilters] = useState({
+    onlyHighlyRelevant: false,
+    onlyAiProjects: false,
+    onlyHealthEquity: false,
+    onlyDiabetes: false,
+    minScore: '',
+  })
 
   const [busy, setBusy] = useState(false)
   const [showSuggestModal, setShowSuggestModal] = useState(false)
@@ -381,6 +413,12 @@ export default function App() {
     () => builderState.concepts.map((concept) => concept.label),
     [builderState.concepts]
   )
+
+  useEffect(() => {
+    if (runId && status === 'completed') {
+      loadResults(runId, 0)
+    }
+  }, [resultFilters, runId, status])
 
   function topicColor(name) {
     const idx = topicNames.indexOf(name)
@@ -554,7 +592,8 @@ export default function App() {
   }
 
   async function loadResults(id, newOffset) {
-    const resp = await fetch(`/api/runs/${id}/results?offset=${newOffset}&limit=${limit}`)
+    const queryString = buildResultsQueryString(resultFilters, newOffset, limit)
+    const resp = await fetch(`/api/runs/${id}/results?${queryString}`)
     if (!resp.ok) throw new Error(await resp.text())
     const data = await resp.json()
     setOffset(data.offset)
@@ -664,6 +703,10 @@ export default function App() {
   const pages = Math.ceil(total / limit) || 1
 
   const summaryCards = [
+    { label: 'Average relevance', value: summary?.ranking?.average_relevance_score ?? '0.0' },
+    { label: 'Highly relevant', value: summary?.ranking?.highly_relevant_count ?? 0 },
+    { label: 'Moderate projects', value: summary?.ranking?.moderately_relevant_count ?? 0 },
+    { label: 'Weak or low', value: (summary?.ranking?.weak_match_count ?? 0) + (summary?.ranking?.low_match_count ?? 0) },
     { label: 'Unique PIs', value: total },
     { label: 'Project records', value: summary?.matched_project_count ?? 0 },
     { label: 'Topics matched', value: Object.keys(summary?.counts_by_topic || {}).length },
@@ -1178,9 +1221,9 @@ export default function App() {
           <div className="results-header">
             <div className="results-heading">
               <p className="card-title">Search Results</p>
-              <h2>Outreach-ready PI results</h2>
+              <h2>Ranked outreach-ready researchers</h2>
               <p>
-                Review matched investigators, institutions, topic assignments, and project context before exporting.
+                Review matched investigators with explainable relevance scoring, then export the strongest outreach list.
               </p>
             </div>
 
@@ -1202,26 +1245,96 @@ export default function App() {
             </div>
           </div>
 
+          <div className="results-filter-card">
+            <div className="results-filter-head">
+              <div>
+                <p className="card-title">Relevance Filters</p>
+                <h3>Score-first triage</h3>
+              </div>
+              <span className="sort-note">Default sort: Relevance Score descending</span>
+            </div>
+
+            <div className="filter-grid">
+              <label className="filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={resultFilters.onlyHighlyRelevant}
+                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyHighlyRelevant: e.target.checked }))}
+                />
+                <span>Only Highly Relevant</span>
+              </label>
+              <label className="filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={resultFilters.onlyAiProjects}
+                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyAiProjects: e.target.checked }))}
+                />
+                <span>Only AI projects</span>
+              </label>
+              <label className="filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={resultFilters.onlyHealthEquity}
+                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyHealthEquity: e.target.checked }))}
+                />
+                <span>Only Health Equity</span>
+              </label>
+              <label className="filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={resultFilters.onlyDiabetes}
+                  onChange={(e) => setResultFilters((current) => ({ ...current, onlyDiabetes: e.target.checked }))}
+                />
+                <span>Only Diabetes</span>
+              </label>
+              <label className="filter-field">
+                <span>Minimum relevance score</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={resultFilters.minScore}
+                  onChange={(e) => setResultFilters((current) => ({ ...current, minScore: e.target.value }))}
+                  placeholder="60"
+                />
+              </label>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() =>
+                  setResultFilters({
+                    onlyHighlyRelevant: false,
+                    onlyAiProjects: false,
+                    onlyHealthEquity: false,
+                    onlyDiabetes: false,
+                    minScore: '',
+                  })
+                }
+              >
+                Reset Filters
+              </button>
+            </div>
+          </div>
+
           <div className="table-card">
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
+                    <th className="col-score">Relevance</th>
                     <th className="col-pi">Contact PI</th>
-                    <th className="col-email">Email</th>
                     <th className="col-org">Organization</th>
                     <th className="col-ic">IC</th>
                     <th className="col-fys">Fiscal Years</th>
-                    <th className="col-num">Project Numbers</th>
-                    <th className="col-date">Date Range</th>
-                    <th className="col-topic">Topics</th>
+                    <th className="col-signals">Matched Signals</th>
                     <th className="col-title">Project Title</th>
+                    <th className="col-explain">Reasoning</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={9}>
+                      <td colSpan={8}>
                         <div className="empty-state">
                           <div className="empty-state-icon">🔎</div>
                           <div className="empty-state-title">
@@ -1246,12 +1359,29 @@ export default function App() {
 
                       return (
                         <tr key={rowKey}>
+                          <td className="col-score">
+                            <div className="score-stack">
+                              <div className="score-value">{r.relevance_score ?? 0}</div>
+                              <span className={`relevance-badge tone-${relevanceBadgeTone(r.relevance_badge)}`}>
+                                {r.relevance_badge || 'Low Match'}
+                              </span>
+                              {typeof r.semantic_similarity === 'number' ? (
+                                <div className="score-meta">Semantic {r.semantic_similarity.toFixed(2)}</div>
+                              ) : null}
+                            </div>
+                          </td>
+
                           <td className="col-pi">
                             <div className="pi-name">
                               {r.pi_last_name && r.pi_first_name
                                 ? `${r.pi_last_name}, ${r.pi_first_name}`
                                 : r.pi_name || <span className="empty-val">—</span>}
                             </div>
+                            {r.pi_email ? (
+                              <a href={`mailto:${r.pi_email}`} className="email-link inline-email">
+                                {r.pi_email}
+                              </a>
+                            ) : null}
                             {r.pi_profile_id ? (
                               <div className="pi-id">
                                 <a
@@ -1264,16 +1394,6 @@ export default function App() {
                                 </a>
                               </div>
                             ) : null}
-                          </td>
-
-                          <td className="col-email">
-                            {r.pi_email ? (
-                              <a href={`mailto:${r.pi_email}`} className="email-link">
-                                {r.pi_email}
-                              </a>
-                            ) : (
-                              <span className="empty-val">—</span>
-                            )}
                           </td>
 
                           <td className="col-org">
@@ -1299,68 +1419,90 @@ export default function App() {
                             )}
                           </td>
 
-                          <td className="col-num">
-                            {Array.isArray(r.project_numbers) && r.project_numbers.length ? (
-                              r.project_numbers.map((n, i) => {
-                                const appl = r.project_ids?.[i]
-                                return appl ? (
-                                  <a
-                                    key={i}
-                                    href={`https://reporter.nih.gov/project-details/${appl}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="proj-num"
-                                  >
-                                    {n} ↗
-                                  </a>
-                                ) : (
-                                  <span key={i} className="proj-num muted-text">
-                                    {n}
-                                  </span>
-                                )
-                              })
-                            ) : (
-                              <span className="empty-val">—</span>
-                            )}
-                          </td>
-
-                          <td className="col-date">
-                            {startD || endD ? (
-                              <div className="date-range">
-                                <span>{startD || '—'}</span>
-                                <span className="date-sep">to</span>
-                                <span>{endD || '—'}</span>
+                          <td className="col-signals">
+                            <div className="signal-stack">
+                              {Array.isArray(r.matched_dimensions) && r.matched_dimensions.length ? (
+                                <KeywordChips terms={r.matched_dimensions} variant="neutral" emptyLabel="No ranked signals" />
+                              ) : (
+                                <span className="empty-val">—</span>
+                              )}
+                              <div className="signal-flags">
+                                {r.ai_match ? <span className="signal-flag">AI</span> : null}
+                                {r.disease_match ? <span className="signal-flag">Diabetes</span> : null}
+                                {r.population_match ? <span className="signal-flag">Equity</span> : null}
                               </div>
-                            ) : (
-                              <span className="empty-val">—</span>
-                            )}
-                          </td>
-
-                          <td className="col-topic">
-                            {Array.isArray(r.matched_topics) && r.matched_topics.length ? (
-                              r.matched_topics.map((t, i) => {
-                                const c = topicColor(t)
-                                return (
-                                  <span key={i} className="topic-tag" style={{ background: c.bg, color: c.color, borderColor: c.border }}>
-                                    {t}
-                                  </span>
-                                )
-                              })
-                            ) : (
-                              <span className="empty-val">—</span>
-                            )}
+                            </div>
                           </td>
 
                           <td className="col-title">
                             {Array.isArray(r.sample_project_titles) && r.sample_project_titles.length ? (
-                              r.sample_project_titles.map((t, i) => (
-                                <div key={i} className="proj-title">
-                                  {t}
+                              <>
+                                {r.sample_project_titles.map((t, i) => (
+                                  <div key={i} className="proj-title">
+                                    {t}
+                                  </div>
+                                ))}
+                                <div className="project-meta">
+                                  {Array.isArray(r.project_numbers) && r.project_numbers.length ? (
+                                    r.project_numbers.map((n, i) => {
+                                      const appl = r.project_ids?.[i]
+                                      return appl ? (
+                                        <a
+                                          key={i}
+                                          href={`https://reporter.nih.gov/project-details/${appl}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="proj-num"
+                                        >
+                                          {n} ↗
+                                        </a>
+                                      ) : (
+                                        <span key={i} className="proj-num muted-text">
+                                          {n}
+                                        </span>
+                                      )
+                                    })
+                                  ) : null}
                                 </div>
-                              ))
+                                {(startD || endD) ? (
+                                  <div className="date-range">
+                                    <span>{startD || '—'}</span>
+                                    <span className="date-sep">to</span>
+                                    <span>{endD || '—'}</span>
+                                  </div>
+                                ) : null}
+                                {Array.isArray(r.matched_topics) && r.matched_topics.length ? (
+                                  <div className="topic-row">
+                                    {r.matched_topics.map((t, i) => {
+                                      const c = topicColor(t)
+                                      return (
+                                        <span key={i} className="topic-tag" style={{ background: c.bg, color: c.color, borderColor: c.border }}>
+                                          {t}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                ) : null}
+                              </>
                             ) : (
                               <span className="empty-val">—</span>
                             )}
+                          </td>
+
+                          <td className="col-explain">
+                            <div className="reasoning-text">{r.reasoning || 'No reasoning available.'}</div>
+                            {Array.isArray(r.mesh_matches) && r.mesh_matches.length ? (
+                              <div className="reasoning-subgroup">
+                                <span className="reasoning-label">MeSH</span>
+                                <KeywordChips terms={r.mesh_matches} variant="teal" emptyLabel="No MeSH overlaps" />
+                              </div>
+                            ) : null}
+                            {Array.isArray(r.matched_concepts) && r.matched_concepts.length ? (
+                              <div className="reasoning-subgroup">
+                                <span className="reasoning-label">Matched concepts</span>
+                                <KeywordChips terms={r.matched_concepts} variant="sage" emptyLabel="No matched concepts" />
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       )
@@ -1374,7 +1516,7 @@ export default function App() {
           {total > 0 ? (
             <div className="results-footer">
               <div className="results-footnote">
-                Broad concept chips improve recall; local filtering and traces keep the result set explainable.
+                Retrieval expands recall first, then the ranking engine prioritizes the strongest outreach candidates.
               </div>
               <div className="pagination">
                 <span className="page-info">

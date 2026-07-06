@@ -1,6 +1,6 @@
 # NIH RePORTER PI Finder
 
-A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines a broad NIH RePORTER API query with strict local topic-matching rules to produce a clean, deduplicated outreach list — exportable as CSV.
+A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines broad NIH RePORTER retrieval, local topic-matching rules, and explainable relevance ranking to produce a clean outreach list — exportable as CSV.
 
 ---
 
@@ -65,7 +65,8 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 - **AI config suggestion** — describe a research topic in plain English; the app generates `broad_keywords` and `topic_terms` for you
 - **PI deduplication** — groups projects by `core_project_num` (year-invariant), derives PI info from the most recent fiscal year
 - **Multi-year aggregation** — collects funding, dates, and abstracts across all fiscal years per project
-- **CSV export** — 22-column export with full traceability (abstracts, terms, project URLs)
+- **Explainable relevance ranking** — scores each outreach candidate from 0-100 with matched dimensions, semantic similarity, MeSH overlap, and human-readable reasoning
+- **CSV export** — ranked export with traceability fields, reasoning, matched concepts, abstracts, terms, and project URLs
 - **30-day disk cache** — avoids re-querying the NIH API for repeated searches
 - **Rate limiting** — ~1 req/sec to stay within NIH API limits
 
@@ -147,6 +148,10 @@ The default frontend workflow now supports plain-language search setup:
 
 `Research question → Generate Concepts → Review concept chips → Start Search`
 
+Completed runs are ranked automatically before display and export:
+
+`Research question → Concepts → MeSH / semantic expansion → NIH RePORTER retrieval → Relevance ranking → Ranked researchers → CSV`
+
 Advanced YAML remains available for power users, but non-technical users no longer need to write YAML or keywords manually to start.
 
 ---
@@ -159,6 +164,7 @@ Copy `backend/config.example.yaml` as your starting point. The config has two se
 
 ```yaml
 query:
+  research_question: AI for diabetes care in underserved populations
   fiscal_years: [2023, 2024, 2025]   # Which fiscal years to search
   broad_keywords:                     # Keywords sent to NIH API (Stage 1)
     - health disparities
@@ -241,7 +247,7 @@ A project can match multiple topics — the `matched_topics` field records which
 | `GET` | `/api/health` | Liveness check |
 | `POST` | `/api/runs` | Start a pipeline run (async) |
 | `GET` | `/api/runs/{run_id}` | Poll run status, MeSH trace, and keyword expansions |
-| `GET` | `/api/runs/{run_id}/results` | Paginated results (`offset`, `limit`) |
+| `GET` | `/api/runs/{run_id}/results` | Paginated ranked results (`offset`, `limit`, optional relevance filters) |
 | `GET` | `/api/runs/{run_id}/export.csv` | Download full CSV |
 | `POST` | `/api/concepts/suggest` | Suggest MeSH-grounded concepts from a research question |
 | `POST` | `/api/suggest-keywords` | AI topic → config suggestion |

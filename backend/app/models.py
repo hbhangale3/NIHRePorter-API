@@ -41,6 +41,7 @@ class SemanticExpansionConfig(BaseModel):
 
 
 class QueryConfig(BaseModel):
+    research_question: str | None = None
     fiscal_years: list[int] = Field(default_factory=list)
     broad_keywords: list[str] = Field(default_factory=list)
     text_search_field: str = "all"
@@ -104,3 +105,15 @@ class PIOutreachRow(BaseModel):
     total_funding_amount: float | None = None
     project_start_date: str | None = None
     project_end_date: str | None = None
+
+    relevance_score: int = 0
+    matched_dimensions: list[str] = Field(default_factory=list)
+    matched_concepts: list[str] = Field(default_factory=list)
+    reasoning: str | None = None
+    semantic_similarity: float | None = None
+    mesh_matches: list[str] = Field(default_factory=list)
+    ai_match: bool = False
+    disease_match: bool = False
+    population_match: bool = False
+    relevance_badge: str = "Low Match"
+    score_breakdown: dict[str, int] = Field(default_factory=dict)
