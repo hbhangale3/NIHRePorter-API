@@ -332,6 +332,30 @@ function TraceGroup({ title, subtitle, terms, variant = 'default' }) {
   )
 }
 
+function ScoreBreakdown({ entries, total }) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return <div className="chips-empty">No score breakdown available</div>
+  }
+
+  return (
+    <div className="breakdown-list">
+      {entries.map((entry) => (
+        <div key={entry.key} className="breakdown-row">
+          <span className="breakdown-label">{entry.label}</span>
+          <span className="breakdown-value">
+            {entry.points}
+            {typeof entry.max_points === 'number' && entry.max_points > 0 ? ` / ${entry.max_points}` : ''}
+          </span>
+        </div>
+      ))}
+      <div className="breakdown-row breakdown-total">
+        <span className="breakdown-label">Total</span>
+        <span className="breakdown-value">{total} / 100</span>
+      </div>
+    </div>
+  )
+}
+
 function ToggleField({ label, description, checked, onChange }) {
   return (
     <label className="toggle-card">
@@ -367,6 +391,7 @@ export default function App() {
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const limit = 50
+  const [expandedRows, setExpandedRows] = useState({})
 
   const [busy, setBusy] = useState(false)
   const [showSuggestModal, setShowSuggestModal] = useState(false)
@@ -541,6 +566,7 @@ export default function App() {
     setRows([])
     setTotal(0)
     setOffset(0)
+    setExpandedRows({})
     try {
       const resp = await fetch('/api/runs', {
         method: 'POST',
@@ -586,6 +612,13 @@ export default function App() {
     setTotal(data.total)
     setRows(data.items || [])
     setSummary(data.summary || null)
+  }
+
+  function toggleResultCard(rowKey) {
+    setExpandedRows((current) => ({
+      ...current,
+      [rowKey]: !current[rowKey],
+    }))
   }
 
   async function downloadCsv() {
@@ -1242,201 +1275,202 @@ export default function App() {
             </div>
           </div>
 
-          <div className="table-card">
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th className="col-score">Relevance</th>
-                    <th className="col-pi">Contact PI</th>
-                    <th className="col-org">Organization</th>
-                    <th className="col-ic">IC</th>
-                    <th className="col-fys">Fiscal Years</th>
-                    <th className="col-signals">Matched Signals</th>
-                    <th className="col-title">Project Title</th>
-                    <th className="col-explain">Reasoning</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={8}>
-                        <div className="empty-state">
-                          <div className="empty-state-icon">🔎</div>
-                          <div className="empty-state-title">
-                            {status === 'completed' ? 'No matching results yet' : 'Ready when you are'}
+          <div className="results-card-list">
+            {rows.length === 0 ? (
+              <div className="table-card">
+                <div className="empty-state">
+                  <div className="empty-state-icon">🔎</div>
+                  <div className="empty-state-title">
+                    {status === 'completed' ? 'No matching results yet' : 'Ready when you are'}
+                  </div>
+                  <div className="empty-state-text">
+                    {status === 'completed'
+                      ? 'No results matched the current topic rules. Try editing the concepts or relaxing local filters.'
+                      : 'Generate concepts from a research question above, then start a search to populate this list.'}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              rows.map((r, idx) => {
+                const location = [r.organization_city, r.organization_state, r.organization_country]
+                  .filter(Boolean)
+                  .join(', ')
+                const startD = fmtDate(r.project_start_date)
+                const endD = fmtDate(r.project_end_date)
+                const rowKey = r.pi_profile_id || `${r.pi_name}-${r.organization_name}-${idx}`
+                const expanded = Boolean(expandedRows[rowKey])
+
+                return (
+                  <article key={rowKey} className={`result-card ${expanded ? 'expanded' : ''}`}>
+                    <button
+                      type="button"
+                      className="result-card-toggle"
+                      onClick={() => toggleResultCard(rowKey)}
+                      aria-expanded={expanded}
+                    >
+                      <div className="result-card-main">
+                        <div className="result-card-identity">
+                          <div className="result-card-name">
+                            {r.pi_last_name && r.pi_first_name
+                              ? `${r.pi_last_name}, ${r.pi_first_name}`
+                              : r.pi_name || 'Unknown Researcher'}
                           </div>
-                          <div className="empty-state-text">
-                            {status === 'completed'
-                              ? 'No results matched the current topic rules. Try editing the concepts or relaxing local filters.'
-                              : 'Generate concepts from a research question above, then start a search to populate this table.'}
+                          <div className="result-card-org">
+                            {r.organization_name || 'Organization unavailable'}
                           </div>
+                          {location ? <div className="result-card-meta">{location}</div> : null}
                         </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((r, idx) => {
-                      const location = [r.organization_city, r.organization_state, r.organization_country]
-                        .filter(Boolean)
-                        .join(', ')
-                      const startD = fmtDate(r.project_start_date)
-                      const endD = fmtDate(r.project_end_date)
-                      const rowKey = r.pi_profile_id || `${r.pi_name}-${r.organization_name}-${idx}`
 
-                      return (
-                        <tr key={rowKey}>
-                          <td className="col-score">
-                            <div className="score-stack">
-                              <div className="score-value">{r.relevance_score ?? 0}</div>
-                              <span className={`relevance-badge tone-${relevanceBadgeTone(r.relevance_badge)}`}>
-                                {r.relevance_badge || 'Low Match'}
+                        <div className="result-card-score">
+                          <div className="score-value">{r.relevance_score ?? 0}</div>
+                          <span className={`relevance-badge tone-${relevanceBadgeTone(r.relevance_badge)}`}>
+                            {r.relevance_badge || 'Low Match'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="result-card-summary">
+                        {r.admin_ic ? <span className="ic-tag">{r.admin_ic}</span> : null}
+                        {Array.isArray(r.fiscal_years) && r.fiscal_years.length ? (
+                          <div className="result-card-pills">
+                            {r.fiscal_years.map((fy) => (
+                              <span key={fy} className="fy-pill">
+                                {fy}
                               </span>
-                              {typeof r.semantic_similarity === 'number' ? (
-                                <div className="score-meta">Semantic {r.semantic_similarity.toFixed(2)}</div>
-                              ) : null}
-                            </div>
-                          </td>
+                            ))}
+                          </div>
+                        ) : null}
+                        <span className={`result-card-chevron ${expanded ? 'open' : ''}`}>⌄</span>
+                      </div>
+                    </button>
 
-                          <td className="col-pi">
-                            <div className="pi-name">
-                              {r.pi_last_name && r.pi_first_name
-                                ? `${r.pi_last_name}, ${r.pi_first_name}`
-                                : r.pi_name || <span className="empty-val">—</span>}
+                    {expanded ? (
+                      <div className="result-card-body">
+                        <div className="result-card-grid">
+                          <section className="result-detail-card">
+                            <h3>Score Breakdown</h3>
+                            <ScoreBreakdown entries={r.score_breakdown_entries} total={r.relevance_score ?? 0} />
+                          </section>
+
+                          <section className="result-detail-card">
+                            <h3>Matched Concepts</h3>
+                            <KeywordChips terms={r.matched_concepts} variant="sage" emptyLabel="No matched concepts" />
+                          </section>
+
+                          <section className="result-detail-card">
+                            <h3>Missing Concepts</h3>
+                            <KeywordChips terms={r.missing_concepts} variant="neutral" emptyLabel="No important concepts missing" />
+                          </section>
+
+                          <section className="result-detail-card">
+                            <h3>Matched Dimensions</h3>
+                            <KeywordChips terms={r.matched_dimensions} variant="teal" emptyLabel="No matched dimensions" />
+                            <div className="detail-meta-line">
+                              Coverage {(r.dimension_coverage_ratio ?? 0).toFixed(2)} · {r.dimension_match_count ?? 0} matched
                             </div>
-                            {r.pi_email ? (
-                              <a href={`mailto:${r.pi_email}`} className="email-link inline-email">
-                                {r.pi_email}
-                              </a>
-                            ) : null}
-                            {r.pi_profile_id ? (
-                              <div className="pi-id">
-                                <a
-                                  href={`https://reporter.nih.gov/pi-details/${r.pi_profile_id}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="subtle-link"
-                                >
-                                  Profile ↗
-                                </a>
+                          </section>
+
+                          <section className="result-detail-card">
+                            <h3>Missing Dimensions</h3>
+                            <KeywordChips terms={r.missing_dimensions} variant="neutral" emptyLabel="No missing dimensions" />
+                          </section>
+
+                          <section className="result-detail-card">
+                            <h3>NIH Query Source</h3>
+                            <KeywordChips terms={r.retrieved_by} variant="coral" emptyLabel="Retrieved by Original Query" />
+                          </section>
+                        </div>
+
+                        <div className="result-detail-card result-detail-full">
+                          <h3>Reasoning</h3>
+                          <div className="reasoning-text">{r.reasoning || 'No reasoning available.'}</div>
+                          <div className="detail-meta-line">
+                            Semantic Similarity {typeof r.semantic_similarity === 'number' ? r.semantic_similarity.toFixed(2) : '—'}
+                          </div>
+                          {Array.isArray(r.mesh_matches) && r.mesh_matches.length ? (
+                            <div className="reasoning-subgroup">
+                              <span className="reasoning-label">MeSH matches</span>
+                              <KeywordChips terms={r.mesh_matches} variant="teal" emptyLabel="No MeSH overlaps" />
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="result-detail-card result-detail-full">
+                          <h3>Project Context</h3>
+                          {Array.isArray(r.sample_project_titles) && r.sample_project_titles.length ? (
+                            r.sample_project_titles.map((t, i) => (
+                              <div key={i} className="proj-title">
+                                {t}
                               </div>
+                            ))
+                          ) : (
+                            <span className="empty-val">—</span>
+                          )}
+                          <div className="project-meta">
+                            {Array.isArray(r.project_numbers) && r.project_numbers.length ? (
+                              r.project_numbers.map((n, i) => {
+                                const appl = r.project_ids?.[i]
+                                return appl ? (
+                                  <a
+                                    key={i}
+                                    href={`https://reporter.nih.gov/project-details/${appl}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="proj-num"
+                                  >
+                                    {n} ↗
+                                  </a>
+                                ) : (
+                                  <span key={i} className="proj-num muted-text">
+                                    {n}
+                                  </span>
+                                )
+                              })
                             ) : null}
-                          </td>
-
-                          <td className="col-org">
-                            <div className="org-name">
-                              {r.organization_name || <span className="empty-val">—</span>}
+                          </div>
+                          {(startD || endD) ? (
+                            <div className="date-range">
+                              <span>{startD || '—'}</span>
+                              <span className="date-sep">to</span>
+                              <span>{endD || '—'}</span>
                             </div>
-                            {location ? <div className="org-loc">{location}</div> : null}
-                          </td>
-
-                          <td className="col-ic">
-                            {r.admin_ic ? <span className="ic-tag">{r.admin_ic}</span> : <span className="empty-val">—</span>}
-                          </td>
-
-                          <td className="col-fys">
-                            {Array.isArray(r.fiscal_years) && r.fiscal_years.length ? (
-                              r.fiscal_years.map((fy) => (
-                                <span key={fy} className="fy-pill">
-                                  {fy}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="empty-val">—</span>
-                            )}
-                          </td>
-
-                          <td className="col-signals">
-                            <div className="signal-stack">
-                              {Array.isArray(r.matched_dimensions) && r.matched_dimensions.length ? (
-                                <KeywordChips terms={r.matched_dimensions} variant="neutral" emptyLabel="No ranked signals" />
-                              ) : (
-                                <span className="empty-val">—</span>
-                              )}
-                              <div className="signal-flags">
-                                {r.ai_match ? <span className="signal-flag">AI</span> : null}
-                                {r.disease_match ? <span className="signal-flag">Diabetes</span> : null}
-                                {r.population_match ? <span className="signal-flag">Equity</span> : null}
-                              </div>
-                            </div>
-                          </td>
-
-                          <td className="col-title">
-                            {Array.isArray(r.sample_project_titles) && r.sample_project_titles.length ? (
-                              <>
-                                {r.sample_project_titles.map((t, i) => (
-                                  <div key={i} className="proj-title">
+                          ) : null}
+                          {Array.isArray(r.matched_topics) && r.matched_topics.length ? (
+                            <div className="topic-row">
+                              {r.matched_topics.map((t, i) => {
+                                const c = topicColor(t)
+                                return (
+                                  <span key={i} className="topic-tag" style={{ background: c.bg, color: c.color, borderColor: c.border }}>
                                     {t}
-                                  </div>
-                                ))}
-                                <div className="project-meta">
-                                  {Array.isArray(r.project_numbers) && r.project_numbers.length ? (
-                                    r.project_numbers.map((n, i) => {
-                                      const appl = r.project_ids?.[i]
-                                      return appl ? (
-                                        <a
-                                          key={i}
-                                          href={`https://reporter.nih.gov/project-details/${appl}`}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="proj-num"
-                                        >
-                                          {n} ↗
-                                        </a>
-                                      ) : (
-                                        <span key={i} className="proj-num muted-text">
-                                          {n}
-                                        </span>
-                                      )
-                                    })
-                                  ) : null}
-                                </div>
-                                {(startD || endD) ? (
-                                  <div className="date-range">
-                                    <span>{startD || '—'}</span>
-                                    <span className="date-sep">to</span>
-                                    <span>{endD || '—'}</span>
-                                  </div>
-                                ) : null}
-                                {Array.isArray(r.matched_topics) && r.matched_topics.length ? (
-                                  <div className="topic-row">
-                                    {r.matched_topics.map((t, i) => {
-                                      const c = topicColor(t)
-                                      return (
-                                        <span key={i} className="topic-tag" style={{ background: c.bg, color: c.color, borderColor: c.border }}>
-                                          {t}
-                                        </span>
-                                      )
-                                    })}
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <span className="empty-val">—</span>
-                            )}
-                          </td>
-
-                          <td className="col-explain">
-                            <div className="reasoning-text">{r.reasoning || 'No reasoning available.'}</div>
-                            {Array.isArray(r.mesh_matches) && r.mesh_matches.length ? (
-                              <div className="reasoning-subgroup">
-                                <span className="reasoning-label">MeSH</span>
-                                <KeywordChips terms={r.mesh_matches} variant="teal" emptyLabel="No MeSH overlaps" />
-                              </div>
-                            ) : null}
-                            {Array.isArray(r.matched_concepts) && r.matched_concepts.length ? (
-                              <div className="reasoning-subgroup">
-                                <span className="reasoning-label">Matched concepts</span>
-                                <KeywordChips terms={r.matched_concepts} variant="sage" emptyLabel="No matched concepts" />
-                              </div>
-                            ) : null}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          ) : null}
+                          {r.pi_email ? (
+                            <a href={`mailto:${r.pi_email}`} className="email-link inline-email">
+                              {r.pi_email}
+                            </a>
+                          ) : null}
+                          {r.pi_profile_id ? (
+                            <div className="pi-id">
+                              <a
+                                href={`https://reporter.nih.gov/pi-details/${r.pi_profile_id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="subtle-link"
+                              >
+                                Profile ↗
+                              </a>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+                )
+              })
+            )}
           </div>
 
           {total > 0 ? (

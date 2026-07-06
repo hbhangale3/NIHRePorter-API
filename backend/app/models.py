@@ -117,6 +117,7 @@ class PIOutreachRow(BaseModel):
     project_end_date: str | None = None
     retrieval_query_matches: list[str] = Field(default_factory=list)
     retrieval_query_reasons: list[str] = Field(default_factory=list)
+    retrieved_by: list[str] = Field(default_factory=list)
 
     relevance_score: int = 0
     matched_dimensions: list[str] = Field(default_factory=list)
@@ -124,6 +125,7 @@ class PIOutreachRow(BaseModel):
     dimension_match_count: int = 0
     dimension_coverage_ratio: float = 0.0
     matched_concepts: list[str] = Field(default_factory=list)
+    missing_concepts: list[str] = Field(default_factory=list)
     reasoning: str | None = None
     semantic_similarity: float | None = None
     mesh_matches: list[str] = Field(default_factory=list)
@@ -132,3 +134,5 @@ class PIOutreachRow(BaseModel):
     population_match: bool = False
     relevance_badge: str = "Low Match"
     score_breakdown: dict[str, int] = Field(default_factory=dict)
+    score_breakdown_entries: list[dict[str, Any]] = Field(default_factory=list)
+    score_breakdown_text: str | None = None

@@ -12,7 +12,7 @@ from .processor import build_outreach_rows
 from .keyword_expander import KeywordExpander
 from .mesh_expander import MeshExpander
 from .retrieval import build_query_plans
-from .ranking import OutreachRankingContext, OutreachRankingScorer
+from .ranking import OutreachRankingContext, OutreachRankingScorer, apply_explanations
 from .semantic import get_embedding_model, get_mesh_semantic_retriever
 from .utils import unique_preserve_order
 
@@ -225,6 +225,20 @@ async def run_pipeline_async(
     )
     ranking_scorer = OutreachRankingScorer(embedding_model=get_embedding_model())
     rows, ranking_summary = ranking_scorer.rank_rows(rows, ranking_context)
+    rows = apply_explanations(
+        rows,
+        research_question=research_question,
+        selected_concepts=original_keywords,
+        final_keywords=current_keywords,
+        mesh_terms=_flatten_trace_terms(mesh_trace),
+        semantic_terms=list(semantic_trace["expanded_terms"]),
+        semantic_concepts=[
+            str(concept.get("preferred_name"))
+            for concept in semantic_trace["concepts"]
+            if isinstance(concept, dict) and concept.get("preferred_name")
+        ],
+        retrieval_trace=retrieval_trace,
+    )
     summary["ranking"] = ranking_summary
     summary["retrieval"] = {
         "multi_query_enabled": retrieval_trace["multi_query_enabled"],

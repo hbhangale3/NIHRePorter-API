@@ -150,6 +150,7 @@ class OutreachRankingScorer:
                             "dimension_bonus": dimension_bonus,
                             "retrieval_multi_hit_bonus": _retrieval_multi_hit_bonus(signal.row.retrieval_query_matches),
                             "recent_funding": signal.recent_funding_score,
+                            "technology_penalty": signal.technology_penalty,
                         },
                     }
                 )
