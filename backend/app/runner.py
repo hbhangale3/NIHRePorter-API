@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from .config_loader import load_config_from_yaml_str
+from .enrichment import EmailEnricher
 from .models import AppConfig, MultiQueryRetrievalConfig
 from .reporter_client import ReporterClient
 from .processor import build_outreach_rows
@@ -239,12 +240,15 @@ async def run_pipeline_async(
         ],
         retrieval_trace=retrieval_trace,
     )
+    email_enricher = EmailEnricher(config.query.email_enrichment)
+    rows, enrichment_summary = await email_enricher.enrich_rows(rows)
     summary["ranking"] = ranking_summary
     summary["retrieval"] = {
         "multi_query_enabled": retrieval_trace["multi_query_enabled"],
         "query_count": len(retrieval_trace["query_plans"]),
         "deduped_project_count": retrieval_trace["deduped_project_count"],
     }
+    summary["email_enrichment"] = enrichment_summary
     logger.info(
         "NIH projects after local filtering=%d; unique outreach rows=%d",
         summary.get("matched_project_count", 0),

@@ -35,6 +35,17 @@ const DEFAULT_YAML = `query:
     require_dimension_overlap: true
     include_original_query: true
 
+  email_enrichment:
+    enabled: false
+    max_researchers: 25
+    sources:
+      - institution_web
+      - pubmed
+      - orcid
+    timeout_seconds: 10
+    max_pages_per_researcher: 3
+    require_high_confidence: false
+
 topics:
   - name: AI + Health Disparities
     include_any:
@@ -204,6 +215,14 @@ function createConfigFromBuilder(builder) {
         require_dimension_overlap: true,
         include_original_query: true,
       },
+      email_enrichment: {
+        enabled: builder.emailEnrichmentEnabled,
+        max_researchers: Math.max(1, Number(builder.emailEnrichmentMaxResearchers) || 25),
+        sources: ['institution_web', 'pubmed', 'orcid'],
+        timeout_seconds: 10,
+        max_pages_per_researcher: 3,
+        require_high_confidence: false,
+      },
     },
     topics: [
       {
@@ -247,6 +266,8 @@ function builderFromConfigObject(config) {
     semanticExpansionEnabled: Boolean(config?.query?.semantic_expansion?.enabled),
     aiExpansionEnabled: Boolean(config?.query?.ai_expansion?.enabled),
     multiQueryRetrievalEnabled: Boolean(config?.query?.multi_query_retrieval?.enabled),
+    emailEnrichmentEnabled: Boolean(config?.query?.email_enrichment?.enabled),
+    emailEnrichmentMaxResearchers: Number(config?.query?.email_enrichment?.max_researchers) || 25,
   }
 }
 
@@ -279,6 +300,12 @@ function relevanceBadgeTone(label) {
   if (label === 'Moderately Relevant') return 'moderate'
   if (label === 'Weak Match') return 'weak'
   return 'low'
+}
+
+function emailConfidenceTone(confidence) {
+  if (confidence === 'high') return 'high'
+  if (confidence === 'medium') return 'moderate'
+  return 'weak'
 }
 
 function TopicTag({ name, index }) {
@@ -977,6 +1004,21 @@ export default function App() {
                       <label className="field-label">Max pages</label>
                       <input type="number" min={1} value={maxPages} onChange={(e) => setMaxPages(Number(e.target.value))} />
                     </div>
+
+                    <div className="form-card">
+                      <label className="field-label">Max researchers to enrich</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={builderState.emailEnrichmentMaxResearchers}
+                        onChange={(e) =>
+                          updateBuilder((current) => ({
+                            ...current,
+                            emailEnrichmentMaxResearchers: Number(e.target.value) || 1,
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
 
                   <div className="toggle-stack">
@@ -1021,6 +1063,17 @@ export default function App() {
                         updateBuilder((current) => ({
                           ...current,
                           aiExpansionEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    <ToggleField
+                      label="Find public emails for top researchers"
+                      description="Uses public sources such as institutional pages and PubMed metadata. This may take longer and may not find every email."
+                      checked={builderState.emailEnrichmentEnabled}
+                      onChange={(e) =>
+                        updateBuilder((current) => ({
+                          ...current,
+                          emailEnrichmentEnabled: e.target.checked,
                         }))
                       }
                     />
@@ -1448,9 +1501,39 @@ export default function App() {
                             </div>
                           ) : null}
                           {r.pi_email ? (
-                            <a href={`mailto:${r.pi_email}`} className="email-link inline-email">
-                              {r.pi_email}
-                            </a>
+                            <div className="email-enrichment-block">
+                              <div className="email-row">
+                                <a href={`mailto:${r.pi_email}`} className="email-link inline-email">
+                                  {r.pi_email}
+                                </a>
+                                {r.email_confidence ? (
+                                  <span className={`confidence-badge tone-${emailConfidenceTone(r.email_confidence)}`}>
+                                    {r.email_confidence} confidence
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="email-meta">
+                                {r.email_source ? <span>Source: {r.email_source}</span> : null}
+                                {r.email_source_url ? (
+                                  <a
+                                    href={r.email_source_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="subtle-link"
+                                  >
+                                    View source ↗
+                                  </a>
+                                ) : null}
+                              </div>
+                              {r.email_notes ? <div className="detail-meta-line">{r.email_notes}</div> : null}
+                            </div>
+                          ) : r.email_status ? (
+                            <div className="email-enrichment-block">
+                              <div className="email-meta">
+                                <span>Email status: {r.email_status.replaceAll('_', ' ')}</span>
+                              </div>
+                              {r.email_notes ? <div className="detail-meta-line">{r.email_notes}</div> : null}
+                            </div>
                           ) : null}
                           {r.pi_profile_id ? (
                             <div className="pi-id">

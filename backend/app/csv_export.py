@@ -12,6 +12,11 @@ CSV_COLUMNS = [
     "pi_first_name",
     "pi_last_name",
     "pi_email",
+    "email_confidence",
+    "email_source",
+    "email_source_url",
+    "email_status",
+    "email_notes",
     "organization_name",
     "organization_city",
     "organization_state",
@@ -68,6 +73,7 @@ def rows_to_csv_bytes(rows: list[PIOutreachRow]) -> bytes:
             "matched_concepts",
             "missing_concepts",
             "matched_dimensions",
+            "score_breakdown_entries",
             "mesh_matches",
         ]:
             if isinstance(d.get(k), list):

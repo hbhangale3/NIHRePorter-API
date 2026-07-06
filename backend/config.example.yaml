@@ -40,6 +40,27 @@ query:
     max_expansions_per_keyword: 5  # Max synonyms/variations per keyword
     context: "biomedical research and health disparities"  # Domain context for expansion
 
+  # Optional: generate several focused NIH queries and merge the results.
+  multi_query_retrieval:
+    enabled: false
+    max_queries: 8
+    pages_per_query: 1
+    require_dimension_overlap: true
+    include_original_query: true
+
+  # Optional: public email enrichment after ranking.
+  # This never changes NIH retrieval and does not overwrite existing PI emails.
+  email_enrichment:
+    enabled: false
+    max_researchers: 25
+    sources:
+      - institution_web
+      - pubmed
+      - orcid
+    timeout_seconds: 10
+    max_pages_per_researcher: 3
+    require_high_confidence: false
+
 topics:
   - name: AI + Health Disparities
     include_any:

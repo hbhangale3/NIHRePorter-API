@@ -1193,14 +1193,16 @@ td {
 }
 
 .relevance-badge,
-.signal-flag {
+.signal-flag,
+.confidence-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
   font-weight: 700;
 }
 
-.relevance-badge {
+.relevance-badge,
+.confidence-badge {
   padding: 6px 10px;
   font-size: 0.76rem;
 }
@@ -1211,16 +1213,34 @@ td {
   border: 1px solid rgba(114, 165, 125, 0.26);
 }
 
+.confidence-badge.tone-high {
+  color: #3f6e46;
+  background: rgba(114, 165, 125, 0.14);
+  border: 1px solid rgba(114, 165, 125, 0.22);
+}
+
 .relevance-badge.tone-moderate {
   color: #8a6132;
   background: rgba(211, 157, 84, 0.16);
   border: 1px solid rgba(211, 157, 84, 0.26);
 }
 
+.confidence-badge.tone-moderate {
+  color: #8a6132;
+  background: rgba(211, 157, 84, 0.14);
+  border: 1px solid rgba(211, 157, 84, 0.22);
+}
+
 .relevance-badge.tone-weak {
   color: #8d5f47;
   background: rgba(239, 170, 143, 0.16);
   border: 1px solid rgba(239, 170, 143, 0.26);
+}
+
+.confidence-badge.tone-weak {
+  color: #8d5f47;
+  background: rgba(239, 170, 143, 0.14);
+  border: 1px solid rgba(239, 170, 143, 0.22);
 }
 
 .relevance-badge.tone-low {
@@ -1237,6 +1257,26 @@ td {
 .inline-email {
   display: inline-block;
   margin-top: 6px;
+}
+
+.email-enrichment-block,
+.email-meta,
+.email-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.email-enrichment-block {
+  margin-top: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.email-meta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
 
 .pi-id,

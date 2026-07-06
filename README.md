@@ -1,6 +1,6 @@
 # NIH RePORTER PI Finder
 
-A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines broad NIH RePORTER retrieval, local topic-matching rules, and explainable relevance ranking to produce a clean outreach list — exportable as CSV.
+A full-stack tool for discovering NIH-funded Principal Investigators (PIs) by research topic. It combines broad NIH RePORTER retrieval, local topic-matching rules, explainable relevance ranking, and optional public email enrichment to produce a clean outreach list — exportable as CSV.
 
 ---
 
@@ -66,7 +66,8 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 - **PI deduplication** — groups projects by `core_project_num` (year-invariant), derives PI info from the most recent fiscal year
 - **Multi-year aggregation** — collects funding, dates, and abstracts across all fiscal years per project
 - **Explainable relevance ranking** — scores each outreach candidate from 0-100 with matched dimensions, semantic similarity, MeSH overlap, and human-readable reasoning
-- **CSV export** — ranked export with traceability fields, reasoning, matched concepts, abstracts, terms, and project URLs
+- **Optional email enrichment** — best-effort public email discovery for top-ranked researchers using conservative institution/PubMed/ORCID lookups
+- **CSV export** — ranked export with traceability fields, reasoning, matched concepts, abstracts, terms, project URLs, and email confidence metadata
 - **30-day disk cache** — avoids re-querying the NIH API for repeated searches
 - **Rate limiting** — ~1 req/sec to stay within NIH API limits
 
@@ -90,6 +91,7 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
 │       ├── keyword_suggester.py     # OpenAI config suggestion
 │       ├── models.py                # Pydantic data models
 │       ├── run_store.py             # In-memory run state store
+│       ├── enrichment/              # Optional public email enrichment
 │       ├── csv_export.py            # Pandas CSV generation
 │       ├── cache.py                 # diskcache wrapper
 │       ├── settings.py              # Env-var settings (pydantic-settings)
@@ -101,7 +103,7 @@ The NIH RePORTER API only supports broad keyword search. A single keyword like `
     └── src/
         ├── App.jsx                  # Main UI component
         ├── main.jsx                 # React entry point
-        └── styles.css               # Dark theme
+        └── styles.css               # UI styling
 ```
 
 ---
@@ -150,7 +152,7 @@ The default frontend workflow now supports plain-language search setup:
 
 Completed runs are ranked automatically before display and export:
 
-`Research question → Concepts → MeSH / semantic expansion → NIH RePORTER retrieval → Relevance ranking → Ranked researchers → CSV`
+`Research question → Concepts → MeSH / semantic expansion → NIH RePORTER retrieval → Relevance ranking → Optional public email enrichment → Ranked researchers → CSV`
 
 Advanced YAML remains available for power users, but non-technical users no longer need to write YAML or keywords manually to start.
 
@@ -198,6 +200,26 @@ query:
     model: gpt-4o-mini
     max_expansions_per_keyword: 5
     context: "biomedical research and health disparities"
+
+  # Optional: targeted multi-query retrieval
+  multi_query_retrieval:
+    enabled: false
+    max_queries: 8
+    pages_per_query: 1
+    require_dimension_overlap: true
+    include_original_query: true
+
+  # Optional: public email enrichment after ranking
+  email_enrichment:
+    enabled: false
+    max_researchers: 25
+    sources:
+      - institution_web
+      - pubmed
+      - orcid
+    timeout_seconds: 10
+    max_pages_per_researcher: 3
+    require_high_confidence: false
 ```
 
 ### `topics` — how to filter locally (Stage 2)
@@ -310,7 +332,7 @@ query:
     cache_enabled: true
 ```
 
-MeSH expansion is optional. If the block is omitted, the app behaves like the original version. If MeSH lookup is unavailable, the run falls back to the original keywords and downstream NIH search, PI extraction, local filtering, and CSV export remain unchanged. Email enrichment is still intentionally deferred because NIH RePORTER does not expose PI emails directly in a reliable way.
+MeSH expansion is optional. If the block is omitted, the app behaves like the original version. If MeSH lookup is unavailable, the run falls back to the original keywords and downstream NIH search, PI extraction, local filtering, and CSV export remain unchanged.
 
 ## Semantic MeSH Expansion
 
@@ -345,6 +367,15 @@ python scripts/build_mesh_kb.py
 - `mesh_graph.json`
 - `mesh_lookup.pkl`
 
+## Public Email Enrichment
+
+NIH RePORTER does not reliably provide PI email addresses. The optional `email_enrichment` stage runs after ranking and only attempts conservative best-effort lookups from public sources such as institutional pages, PubMed metadata, and ORCID.
+
+- Enrichment is disabled by default.
+- Existing PI emails are preserved and never overwritten.
+- `not_found` is normal for many researchers.
+- CSV columns such as `email_confidence`, `email_source`, `email_source_url`, `email_status`, and `email_notes` explain how trustworthy each match is.
+
 ---
 
 ## CSV Export Columns
@@ -353,7 +384,12 @@ python scripts/build_mesh_kb.py
 |---|---|
 | `pi_name` | Full name of contact PI |
 | `pi_first_name` / `pi_last_name` | Split name components |
-| `pi_email` | Contact email (often absent in NIH data) |
+| `pi_email` | Contact email from NIH data or optional public enrichment |
+| `email_confidence` | `high`, `medium`, or `low` confidence for enriched emails |
+| `email_source` | Public source used (`nih_reporter`, `institution_web`, `pubmed`, `orcid`) |
+| `email_source_url` | Supporting public page URL when available |
+| `email_status` | `found_*_confidence`, `not_found`, `skipped`, or `error` |
+| `email_notes` | Human-readable explanation of how the email was found or why it was missing |
 | `organization_name` | Institution name |
 | `organization_city/state/country` | Institution location |
 | `admin_ic` | NIH Institute/Center abbreviation (e.g. `NCI`, `NIMHD`) |

@@ -48,6 +48,15 @@ class MultiQueryRetrievalConfig(BaseModel):
     include_original_query: bool = True
 
 
+class EmailEnrichmentConfig(BaseModel):
+    enabled: bool = False
+    max_researchers: int = 50
+    sources: list[str] = Field(default_factory=lambda: ["institution_web", "pubmed", "orcid"])
+    timeout_seconds: int = 10
+    max_pages_per_researcher: int = 3
+    require_high_confidence: bool = False
+
+
 class QueryConfig(BaseModel):
     research_question: str | None = None
     fiscal_years: list[int] = Field(default_factory=list)
@@ -58,6 +67,7 @@ class QueryConfig(BaseModel):
     semantic_expansion: SemanticExpansionConfig = Field(default_factory=SemanticExpansionConfig)
     ai_expansion: AIExpansionConfig = Field(default_factory=AIExpansionConfig)
     multi_query_retrieval: MultiQueryRetrievalConfig = Field(default_factory=MultiQueryRetrievalConfig)
+    email_enrichment: EmailEnrichmentConfig = Field(default_factory=EmailEnrichmentConfig)
 
 
 class AppConfig(BaseModel):
@@ -92,6 +102,11 @@ class PIOutreachRow(BaseModel):
     pi_first_name: str | None = None
     pi_last_name: str | None = None
     pi_email: str | None = None
+    email_confidence: str | None = None
+    email_source: str | None = None
+    email_source_url: str | None = None
+    email_status: str | None = None
+    email_notes: str | None = None
 
     organization_name: str | None = None
     organization_city: str | None = None
