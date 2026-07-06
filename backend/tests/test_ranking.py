@@ -148,7 +148,7 @@ def test_ranking_spreads_scores_and_orders_results() -> None:
     assert ranked_rows[3].relevance_badge == "Low Relevance"
     assert ranking_summary["highly_relevant_count"] >= 1
     assert ranking_summary["moderately_relevant_count"] >= 1
-    assert ranking_summary["weak_match_count"] >= 1
+    assert ranking_summary["weak_match_count"] + ranking_summary["low_match_count"] >= 1
 
 
 def test_dimension_coverage_and_missing_dimensions_are_reported() -> None:
@@ -200,6 +200,26 @@ def test_ai_disease_population_match_scores_above_disease_only() -> None:
     assert ranked_rows[0].relevance_score > ranked_rows[1].relevance_score
     assert ranked_rows[1].relevance_badge != "Highly Relevant"
     assert ranked_rows[1].dimension_match_count < ranked_rows[0].dimension_match_count
+    assert "AI / Data Science" in ranked_rows[1].missing_dimensions
+    assert "AI / Data Science" in ranked_rows[1].reasoning
+
+
+def test_high_relevance_requires_technology_dimension_when_query_includes_ai() -> None:
+    row = _row(
+        name="Bailey Mid",
+        title="Community diabetes care coordination program",
+        abstract="Diabetes intervention for underserved adults in community health settings.",
+        terms=["Diabetes Mellitus", "Community Health"],
+        fiscal_years=[2025],
+        project_number="P2",
+    )
+    scorer = OutreachRankingScorer(embedding_model=FakeEmbeddingModel())
+
+    ranked_rows, _ = scorer.rank_rows([row], _context())
+
+    assert ranked_rows[0].ai_match is False
+    assert ranked_rows[0].relevance_score < 80
+    assert ranked_rows[0].relevance_badge != "Highly Relevant"
 
 
 def test_ranking_is_deterministic() -> None:

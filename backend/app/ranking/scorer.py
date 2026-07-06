@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from ..models import PIOutreachRow
 from ..semantic.embedding_model import EmbeddingModel
 from ..utils import normalize_text, unique_preserve_order
-from .dimensions import DimensionFamily, build_dimension_families, match_family_terms
+from .dimensions import DimensionFamily, build_dimension_families, build_query_intent, match_family_terms, requires_technology_match
 from .keyword_score import compute_keyword_score
 from .mesh_score import compute_mesh_score
 from .reasoning import build_reasoning, relevance_badge_for_score
@@ -42,6 +42,7 @@ class RowSignals:
     population_match: bool
     dimension_match_count: int
     dimension_coverage_ratio: float
+    technology_penalty: int
 
 
 class OutreachRankingScorer:
@@ -56,6 +57,14 @@ class OutreachRankingScorer:
         if not rows:
             return [], _ranking_summary([])
 
+        query_intent = build_query_intent(
+            research_question=context.research_question,
+            selected_concepts=context.selected_concepts,
+            final_keywords=context.final_keywords,
+            mesh_terms=context.mesh_terms,
+            semantic_terms=context.semantic_terms,
+            semantic_concepts=context.semantic_concepts,
+        )
         dimension_families = build_dimension_families(
             research_question=context.research_question,
             selected_concepts=context.selected_concepts,
@@ -64,6 +73,7 @@ class OutreachRankingScorer:
             semantic_terms=context.semantic_terms,
             semantic_concepts=context.semantic_concepts,
         )
+        technology_required_for_high = requires_technology_match(query_intent)
         semantic_results = self.semantic_scorer.score_rows(context.research_question, rows)
 
         row_signals = [
@@ -73,6 +83,7 @@ class OutreachRankingScorer:
                 context=context,
                 semantic_results=semantic_results,
                 dimension_families=dimension_families,
+                technology_required_for_high=technology_required_for_high,
             )
             for index, row in enumerate(rows)
         ]
@@ -99,6 +110,10 @@ class OutreachRankingScorer:
                 + dimension_bonus
                 + signal.recent_funding_score,
             )
+            if signal.technology_penalty > 0:
+                total_score = max(0, total_score - signal.technology_penalty)
+            if technology_required_for_high and not signal.ai_match:
+                total_score = min(total_score, 79)
 
             reasoning = build_reasoning(
                 score=total_score,
@@ -157,6 +172,7 @@ class OutreachRankingScorer:
         context: OutreachRankingContext,
         semantic_results: dict[str, object],
         dimension_families: list[DimensionFamily],
+        technology_required_for_high: bool,
     ) -> RowSignals:
         title_text = " ".join(row.sample_project_titles)
         full_text = " ".join([title_text, " ".join(row.project_abstracts), " ".join(row.project_terms)]).strip()
@@ -209,6 +225,7 @@ class OutreachRankingScorer:
             population_match="Population / Equity / Access" in matched_dimensions,
             dimension_match_count=dimension_match_count,
             dimension_coverage_ratio=dimension_coverage_ratio,
+            technology_penalty=12 if technology_required_for_high and "AI / Data Science" not in matched_dimensions else 0,
         )
 
 
