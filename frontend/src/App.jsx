@@ -28,6 +28,13 @@ const DEFAULT_YAML = `query:
     max_expansions_per_keyword: 5
     context: "biomedical research and health disparities"
 
+  multi_query_retrieval:
+    enabled: false
+    max_queries: 8
+    pages_per_query: 1
+    require_dimension_overlap: true
+    include_original_query: true
+
 topics:
   - name: AI + Health Disparities
     include_any:
@@ -190,6 +197,13 @@ function createConfigFromBuilder(builder) {
         max_expansions_per_keyword: 5,
         context: builder.researchQuestion.trim() || DEFAULT_AI_CONTEXT,
       },
+      multi_query_retrieval: {
+        enabled: builder.multiQueryRetrievalEnabled,
+        max_queries: 8,
+        pages_per_query: 1,
+        require_dimension_overlap: true,
+        include_original_query: true,
+      },
     },
     topics: [
       {
@@ -232,6 +246,7 @@ function builderFromConfigObject(config) {
     meshExpansionEnabled: Boolean(config?.query?.mesh_expansion?.enabled),
     semanticExpansionEnabled: Boolean(config?.query?.semantic_expansion?.enabled),
     aiExpansionEnabled: Boolean(config?.query?.ai_expansion?.enabled),
+    multiQueryRetrievalEnabled: Boolean(config?.query?.multi_query_retrieval?.enabled),
   }
 }
 
@@ -940,6 +955,17 @@ export default function App() {
                         updateBuilder((current) => ({
                           ...current,
                           meshExpansionEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    <ToggleField
+                      label="Use targeted multi-query retrieval"
+                      description="Runs several focused NIH searches from the research intent, then merges and ranks results. Slower but usually cleaner."
+                      checked={builderState.multiQueryRetrievalEnabled}
+                      onChange={(e) =>
+                        updateBuilder((current) => ({
+                          ...current,
+                          multiQueryRetrievalEnabled: e.target.checked,
                         }))
                       }
                     />

@@ -108,6 +108,7 @@ class OutreachRankingScorer:
                 + mesh_points[index]
                 + coverage_points
                 + dimension_bonus
+                + _retrieval_multi_hit_bonus(signal.row.retrieval_query_matches)
                 + signal.recent_funding_score,
             )
             if signal.technology_penalty > 0:
@@ -147,6 +148,7 @@ class OutreachRankingScorer:
                             "mesh_overlap": mesh_points[index],
                             "dimension_coverage": coverage_points,
                             "dimension_bonus": dimension_bonus,
+                            "retrieval_multi_hit_bonus": _retrieval_multi_hit_bonus(signal.row.retrieval_query_matches),
                             "recent_funding": signal.recent_funding_score,
                         },
                     }
@@ -237,6 +239,15 @@ def _dimension_bonus(matched_count: int, total_count: int) -> int:
     if matched_count == 2:
         return 6
     return 3
+
+
+def _retrieval_multi_hit_bonus(query_matches: list[str]) -> int:
+    match_count = len(query_matches)
+    if match_count >= 4:
+        return 6
+    if match_count >= 2:
+        return 3
+    return 0
 
 
 def _normalize_component(values: list[float], *, max_points: int) -> list[int]:

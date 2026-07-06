@@ -24,6 +24,7 @@ class RunRecord:
     results: list[dict[str, Any]] | None = None
     keyword_expansions: dict[str, list[str]] | None = None
     expansion_trace: dict[str, Any] | None = None
+    retrieval_trace: dict[str, Any] | None = None
 
 
 class RunStore:

@@ -40,6 +40,14 @@ class SemanticExpansionConfig(BaseModel):
     require_existing_index: bool = False
 
 
+class MultiQueryRetrievalConfig(BaseModel):
+    enabled: bool = False
+    max_queries: int = 8
+    pages_per_query: int = 1
+    require_dimension_overlap: bool = True
+    include_original_query: bool = True
+
+
 class QueryConfig(BaseModel):
     research_question: str | None = None
     fiscal_years: list[int] = Field(default_factory=list)
@@ -49,6 +57,7 @@ class QueryConfig(BaseModel):
     mesh_expansion: MeshExpansionConfig = Field(default_factory=MeshExpansionConfig)
     semantic_expansion: SemanticExpansionConfig = Field(default_factory=SemanticExpansionConfig)
     ai_expansion: AIExpansionConfig = Field(default_factory=AIExpansionConfig)
+    multi_query_retrieval: MultiQueryRetrievalConfig = Field(default_factory=MultiQueryRetrievalConfig)
 
 
 class AppConfig(BaseModel):
@@ -75,6 +84,7 @@ class RunStatus(BaseModel):
     progress: dict[str, Any] = Field(default_factory=dict)
     keyword_expansions: dict[str, list[str]] | None = None
     expansion_trace: dict[str, Any] | None = None
+    retrieval_trace: dict[str, Any] | None = None
 
 
 class PIOutreachRow(BaseModel):
@@ -105,6 +115,8 @@ class PIOutreachRow(BaseModel):
     total_funding_amount: float | None = None
     project_start_date: str | None = None
     project_end_date: str | None = None
+    retrieval_query_matches: list[str] = Field(default_factory=list)
+    retrieval_query_reasons: list[str] = Field(default_factory=list)
 
     relevance_score: int = 0
     matched_dimensions: list[str] = Field(default_factory=list)

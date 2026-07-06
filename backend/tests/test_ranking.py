@@ -257,3 +257,22 @@ def test_relevance_badge_thresholds() -> None:
     assert relevance_badge_for_score(70) == "Moderately Relevant"
     assert relevance_badge_for_score(45) == "Weak Match"
     assert relevance_badge_for_score(39) == "Low Relevance"
+
+
+def test_ranking_accepts_retrieval_query_matches_without_breaking() -> None:
+    row = _row(
+        name="Alex Strong",
+        title="Artificial intelligence for diabetes care in underserved communities",
+        abstract="Machine learning models for health disparities in diabetes care.",
+        terms=["Diabetes Mellitus", "Artificial Intelligence", "Health Equity"],
+        fiscal_years=[2025, 2026],
+        project_number="P1",
+    )
+    row.retrieval_query_matches = ["mq-1", "mq-2", "mq-3"]
+    row.retrieval_query_reasons = ["tech + disease", "tech + equity", "disease + equity"]
+
+    scorer = OutreachRankingScorer(embedding_model=FakeEmbeddingModel())
+    ranked_rows, _ = scorer.rank_rows([row], _context())
+
+    assert ranked_rows[0].relevance_score >= 80
+    assert ranked_rows[0].score_breakdown["retrieval_multi_hit_bonus"] > 0

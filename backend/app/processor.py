@@ -229,6 +229,11 @@ def build_outreach_rows(projects: list[dict[str, Any]], config: AppConfig) -> tu
             if terms_text:
                 row.project_terms.append(terms_text)
 
+            if isinstance(rec.get("retrieval_query_matches"), list):
+                row.retrieval_query_matches.extend(str(item) for item in rec["retrieval_query_matches"])
+            if isinstance(rec.get("retrieval_query_reasons"), list):
+                row.retrieval_query_reasons.extend(str(item) for item in rec["retrieval_query_reasons"])
+
             # date range: earliest start, latest end
             sd = rec.get("project_start_date")
             if sd:
@@ -254,6 +259,8 @@ def build_outreach_rows(projects: list[dict[str, Any]], config: AppConfig) -> tu
         row.project_urls = unique_preserve_order(row.project_urls)
         row.project_numbers = unique_preserve_order(row.project_numbers)
         row.sample_project_titles = unique_preserve_order(seen_titles)[:3]
+        row.retrieval_query_matches = unique_preserve_order(row.retrieval_query_matches)
+        row.retrieval_query_reasons = unique_preserve_order(row.retrieval_query_reasons)
 
         out_rows.append(row)
 

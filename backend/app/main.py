@@ -79,6 +79,7 @@ async def _execute_run(run_id: str) -> None:
             summary=summary,
             keyword_expansions=keyword_expansions,
             expansion_trace=expansion_trace,
+            retrieval_trace=expansion_trace.get("retrieval"),
             progress={"stage": "completed"},
         )
     except Exception as e:
@@ -96,6 +97,7 @@ async def create_run(req: RunRequest, background_tasks: BackgroundTasks) -> RunS
         progress=rec.progress or {},
         keyword_expansions=None,
         expansion_trace=None,
+        retrieval_trace=None,
     )
 
 
@@ -111,6 +113,7 @@ def get_run(run_id: str) -> RunStatus:
         progress=rec.progress or {},
         keyword_expansions=rec.keyword_expansions,
         expansion_trace=rec.expansion_trace,
+        retrieval_trace=rec.retrieval_trace,
     )
 
 
