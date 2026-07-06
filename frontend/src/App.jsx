@@ -43,6 +43,28 @@ topics:
       - [clinical, community, public health]
 `
 
+const TOPIC_COLORS = [
+  { bg: 'rgba(92, 158, 149, 0.16)', color: '#2f6f69', border: 'rgba(92, 158, 149, 0.24)' },
+  { bg: 'rgba(135, 170, 132, 0.18)', color: '#557451', border: 'rgba(135, 170, 132, 0.26)' },
+  { bg: 'rgba(241, 170, 137, 0.18)', color: '#a65d3d', border: 'rgba(241, 170, 137, 0.28)' },
+  { bg: 'rgba(142, 186, 201, 0.18)', color: '#4b7488', border: 'rgba(142, 186, 201, 0.28)' },
+  { bg: 'rgba(217, 192, 140, 0.2)', color: '#8b6b24', border: 'rgba(217, 192, 140, 0.28)' },
+]
+
+const SEARCH_FIELD_OPTIONS = [
+  { value: 'all', label: 'All searchable text' },
+  { value: 'projecttitle', label: 'Project title' },
+  { value: 'abstracttext', label: 'Abstract text' },
+  { value: 'terms', label: 'Terms' },
+]
+
+const OPERATOR_OPTIONS = [
+  { value: 'or', label: 'Broad match (recommended)' },
+  { value: 'and', label: 'Strict match' },
+]
+
+const DEFAULT_AI_CONTEXT = 'biomedical research and health disparities'
+
 function downloadBlob(bytes, filename, contentType) {
   const blob = new Blob([bytes], { type: contentType })
   const url = URL.createObjectURL(blob)
@@ -55,13 +77,184 @@ function downloadBlob(bytes, filename, contentType) {
   URL.revokeObjectURL(url)
 }
 
-const TOPIC_COLORS = [
-  { bg: 'rgba(92, 158, 149, 0.16)', color: '#2f6f69', border: 'rgba(92, 158, 149, 0.24)' },
-  { bg: 'rgba(135, 170, 132, 0.18)', color: '#557451', border: 'rgba(135, 170, 132, 0.26)' },
-  { bg: 'rgba(241, 170, 137, 0.18)', color: '#a65d3d', border: 'rgba(241, 170, 137, 0.28)' },
-  { bg: 'rgba(142, 186, 201, 0.18)', color: '#4b7488', border: 'rgba(142, 186, 201, 0.28)' },
-  { bg: 'rgba(217, 192, 140, 0.2)', color: '#8b6b24', border: 'rgba(217, 192, 140, 0.28)' },
-]
+function parseCommaSeparated(input) {
+  return input
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function dedupeByLabel(concepts) {
+  const seen = new Set()
+  const unique = []
+
+  concepts.forEach((concept) => {
+    const label = String(concept?.label || '').trim()
+    if (!label) return
+    const key = label.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    unique.push({
+      label,
+      source: concept?.source || 'manual',
+      mesh_id: concept?.mesh_id ?? null,
+      score: concept?.score ?? null,
+    })
+  })
+
+  return unique
+}
+
+function parseFiscalYears(input) {
+  return parseCommaSeparated(input)
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0)
+}
+
+function buildTopicName(question, concepts) {
+  const normalizedQuestion = String(question || '').trim()
+  if (normalizedQuestion) return normalizedQuestion
+  if (concepts.length > 0) return concepts.map((item) => item.label).join(' + ').slice(0, 80)
+  return 'Research Topic'
+}
+
+function simpleFallbackConcepts(question, maxConcepts = 5) {
+  const cleaned = String(question || '')
+    .replace(/[^\w\s/-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) return []
+
+  const phrases = []
+  const parts = cleaned.split(/\b(?:and|or|for|with|in|on|to|of|the|a|an|using|via)\b/i)
+  parts.forEach((part) => {
+    const normalized = part.trim()
+    if (normalized.length >= 3) phrases.push(normalized)
+  })
+
+  const tokens = cleaned
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2)
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    phrases.push(tokens[index])
+    if (tokens[index + 1]) phrases.push(`${tokens[index]} ${tokens[index + 1]}`)
+  }
+
+  return dedupeByLabel(
+    phrases.slice(0, maxConcepts).map((label) => ({
+      label,
+      source: 'fallback',
+      mesh_id: null,
+      score: null,
+    }))
+  ).slice(0, maxConcepts)
+}
+
+function createConfigFromBuilder(builder) {
+  const broadKeywords = builder.concepts.length > 0
+    ? builder.concepts.map((concept) => concept.label)
+    : simpleFallbackConcepts(builder.researchQuestion, 5).map((concept) => concept.label)
+
+  return {
+    query: {
+      fiscal_years: parseFiscalYears(builder.fiscalYearsText),
+      broad_keywords: broadKeywords,
+      text_search_field: builder.textSearchField,
+      text_search_operator: builder.textSearchOperator,
+      mesh_expansion: {
+        enabled: builder.meshExpansionEnabled,
+        max_terms_per_keyword: 15,
+        include_entry_terms: true,
+        include_tree_children: true,
+        max_tree_depth: 1,
+        fallback_to_original: true,
+        cache_enabled: true,
+      },
+      semantic_expansion: {
+        enabled: builder.semanticExpansionEnabled,
+        top_k: 10,
+        max_terms: 30,
+        min_score: null,
+        include_synonyms: true,
+        require_existing_index: false,
+      },
+      ai_expansion: {
+        enabled: builder.aiExpansionEnabled,
+        openai_api_key: null,
+        model: 'gpt-4o-mini',
+        max_expansions_per_keyword: 5,
+        context: builder.researchQuestion.trim() || DEFAULT_AI_CONTEXT,
+      },
+    },
+    topics: [
+      {
+        name: buildTopicName(builder.researchQuestion, builder.concepts),
+        include_any: broadKeywords,
+        include_all: [],
+        exclude_any: [],
+        co_require_groups: [],
+      },
+    ],
+  }
+}
+
+function normalizeConceptsFromYaml(config) {
+  const broadKeywords = Array.isArray(config?.query?.broad_keywords) ? config.query.broad_keywords : []
+  return dedupeByLabel(
+    broadKeywords.map((label) => ({
+      label,
+      source: 'manual',
+      mesh_id: null,
+      score: null,
+    }))
+  )
+}
+
+function builderFromConfigObject(config) {
+  const aiContext = config?.query?.ai_expansion?.context
+  return {
+    researchQuestion:
+      typeof aiContext === 'string' && aiContext !== DEFAULT_AI_CONTEXT
+        ? aiContext
+        : config?.topics?.[0]?.name || '',
+    concepts: normalizeConceptsFromYaml(config),
+    fiscalYearsText: Array.isArray(config?.query?.fiscal_years)
+      ? config.query.fiscal_years.join(', ')
+      : '',
+    textSearchField: config?.query?.text_search_field || 'all',
+    textSearchOperator: config?.query?.text_search_operator || 'or',
+    meshExpansionEnabled: Boolean(config?.query?.mesh_expansion?.enabled),
+    semanticExpansionEnabled: Boolean(config?.query?.semantic_expansion?.enabled),
+    aiExpansionEnabled: Boolean(config?.query?.ai_expansion?.enabled),
+  }
+}
+
+function builderFromYaml(yamlText) {
+  try {
+    const parsed = yaml.load(yamlText)
+    return builderFromConfigObject(parsed || {})
+  } catch {
+    return builderFromConfigObject({})
+  }
+}
+
+function serializeBuilder(builder) {
+  return yaml.dump(createConfigFromBuilder(builder), {
+    indent: 2,
+    lineWidth: -1,
+    noRefs: true,
+  })
+}
+
+function conceptSourceLabel(source) {
+  if (source === 'semantic_mesh') return 'Semantic match'
+  if (source === 'mesh_lookup') return 'Official MeSH'
+  if (source === 'fallback') return 'Fallback'
+  return 'Manual'
+}
 
 function TopicTag({ name, index }) {
   const c = TOPIC_COLORS[index % TOPIC_COLORS.length]
@@ -114,8 +307,28 @@ function TraceGroup({ title, subtitle, terms, variant = 'default' }) {
   )
 }
 
+function ToggleField({ label, description, checked, onChange }) {
+  return (
+    <label className="toggle-card">
+      <div className="toggle-copy">
+        <span className="toggle-label">{label}</span>
+        <span className="toggle-description">{description}</span>
+      </div>
+      <span className={`toggle-switch ${checked ? 'checked' : ''}`}>
+        <input type="checkbox" checked={checked} onChange={onChange} />
+        <span className="toggle-slider" />
+      </span>
+    </label>
+  )
+}
+
 export default function App() {
+  const initialBuilder = useMemo(() => builderFromYaml(DEFAULT_YAML), [])
+
+  const [builderState, setBuilderState] = useState(initialBuilder)
   const [configYaml, setConfigYaml] = useState(DEFAULT_YAML)
+  const [conceptInput, setConceptInput] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [maxPages, setMaxPages] = useState(10)
 
   const [runId, setRunId] = useState(null)
@@ -135,6 +348,8 @@ export default function App() {
   const [topicDescription, setTopicDescription] = useState('')
   const [suggestingKeywords, setSuggestingKeywords] = useState(false)
   const [suggestedConfig, setSuggestedConfig] = useState(null)
+  const [generatingConcepts, setGeneratingConcepts] = useState(false)
+  const [conceptStatus, setConceptStatus] = useState({ tone: 'idle', text: 'Generate concepts from a research question to start.' })
 
   const yamlValid = useMemo(() => {
     try {
@@ -162,12 +377,137 @@ export default function App() {
     return 'Ready for a new search run.'
   }, [busy, message, status])
 
+  const selectedConceptLabels = useMemo(
+    () => builderState.concepts.map((concept) => concept.label),
+    [builderState.concepts]
+  )
+
   function topicColor(name) {
     const idx = topicNames.indexOf(name)
     return TOPIC_COLORS[(idx >= 0 ? idx : 0) % TOPIC_COLORS.length]
   }
 
+  function updateBuilder(updater) {
+    setBuilderState((current) => {
+      const next = typeof updater === 'function' ? updater(current) : { ...current, ...updater }
+      setConfigYaml(serializeBuilder(next))
+      return next
+    })
+  }
+
+  function addManualConcept(rawValue) {
+    const terms = parseCommaSeparated(String(rawValue || ''))
+    if (terms.length === 0) return
+
+    updateBuilder((current) => ({
+      ...current,
+      concepts: dedupeByLabel([
+        ...current.concepts,
+        ...terms.map((label) => ({ label, source: 'manual', mesh_id: null, score: null })),
+      ]),
+    }))
+    setConceptInput('')
+  }
+
+  function removeConcept(labelToRemove) {
+    updateBuilder((current) => ({
+      ...current,
+      concepts: current.concepts.filter((concept) => concept.label !== labelToRemove),
+    }))
+  }
+
+  function clearAllConcepts() {
+    updateBuilder((current) => ({
+      ...current,
+      concepts: [],
+    }))
+    setConceptStatus({ tone: 'idle', text: 'Concepts cleared. Generate again or add your own.' })
+  }
+
+  async function generateConcepts() {
+    const question = builderState.researchQuestion.trim()
+    if (!question) {
+      setConceptStatus({ tone: 'warning', text: 'Add a research question first.' })
+      return
+    }
+
+    setGeneratingConcepts(true)
+    setConceptStatus({ tone: 'loading', text: 'Generating concepts...' })
+
+    try {
+      const resp = await fetch('/api/concepts/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, top_k: 8 }),
+      })
+      if (!resp.ok) throw new Error(await resp.text())
+      const data = await resp.json()
+      const concepts = dedupeByLabel(data.concepts || [])
+
+      if (concepts.length === 0) {
+        setConceptStatus({ tone: 'warning', text: 'No concepts found; add manually or edit the question.' })
+        updateBuilder((current) => ({ ...current, concepts: [] }))
+        return
+      }
+
+      updateBuilder((current) => ({
+        ...current,
+        concepts,
+      }))
+
+      const onlyFallback = concepts.every((concept) => concept.source === 'fallback')
+      const usedMeshFallback = concepts.some((concept) => concept.source === 'mesh_lookup')
+      if (onlyFallback) {
+        setConceptStatus({
+          tone: 'warning',
+          text: 'Could not generate MeSH-grounded concepts; using simple fallback suggestions.',
+        })
+      } else if (usedMeshFallback || data.fallback_used) {
+        setConceptStatus({
+          tone: 'success',
+          text: 'Suggested concepts ready. Some concepts came from local MeSH lookup fallback.',
+        })
+      } else {
+        setConceptStatus({ tone: 'success', text: 'Suggested concepts ready.' })
+      }
+    } catch (_error) {
+      const fallback = simpleFallbackConcepts(question, 5)
+      updateBuilder((current) => ({
+        ...current,
+        concepts: fallback,
+      }))
+      if (fallback.length > 0) {
+        setConceptStatus({
+          tone: 'warning',
+          text: 'Could not generate MeSH-grounded concepts; using simple fallback suggestions.',
+        })
+      } else {
+        setConceptStatus({ tone: 'error', text: 'No concepts found; add manually or edit the question.' })
+      }
+    } finally {
+      setGeneratingConcepts(false)
+    }
+  }
+
   async function startRun() {
+    let yamlToRun = configYaml
+    if (builderState.concepts.length === 0 && builderState.researchQuestion.trim()) {
+      const fallbackConcepts = simpleFallbackConcepts(builderState.researchQuestion, 5)
+      if (fallbackConcepts.length > 0) {
+        const nextBuilder = {
+          ...builderState,
+          concepts: fallbackConcepts,
+        }
+        setBuilderState(nextBuilder)
+        yamlToRun = serializeBuilder(nextBuilder)
+        setConfigYaml(yamlToRun)
+        setConceptStatus({
+          tone: 'warning',
+          text: 'No generated concepts were selected, so the search used a simple fallback concept list.',
+        })
+      }
+    }
+
     setBusy(true)
     setMessage(null)
     setSummary(null)
@@ -180,7 +520,7 @@ export default function App() {
       const resp = await fetch('/api/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config_yaml: configYaml, max_pages: maxPages || null }),
+        body: JSON.stringify({ config_yaml: yamlToRun, max_pages: maxPages || null }),
       })
       if (!resp.ok) throw new Error(await resp.text())
       const data = await resp.json()
@@ -195,7 +535,7 @@ export default function App() {
   }
 
   async function pollUntilDone(id) {
-    for (let i = 0; i < 600; i++) {
+    for (let i = 0; i < 600; i += 1) {
       const resp = await fetch(`/api/runs/${id}`)
       if (!resp.ok) throw new Error(await resp.text())
       const data = await resp.json()
@@ -208,7 +548,7 @@ export default function App() {
         return
       }
       if (data.status === 'failed') return
-      await new Promise((r) => setTimeout(r, 1000))
+      await new Promise((resolve) => setTimeout(resolve, 1000))
     }
     throw new Error('Timed out waiting for run completion')
   }
@@ -232,16 +572,35 @@ export default function App() {
   }
 
   function onUploadYaml(e) {
-    const f = e.target.files?.[0]
-    if (!f) return
+    const file = e.target.files?.[0]
+    if (!file) return
     const reader = new FileReader()
-    reader.onload = () => setConfigYaml(String(reader.result || ''))
-    reader.readAsText(f)
+    reader.onload = () => {
+      const nextYaml = String(reader.result || '')
+      setConfigYaml(nextYaml)
+      try {
+        const parsed = yaml.load(nextYaml)
+        setBuilderState(builderFromConfigObject(parsed || {}))
+      } catch {
+        // Preserve the existing builder while invalid YAML is being reviewed.
+      }
+    }
+    reader.readAsText(file)
   }
 
-  function fmtDate(s) {
-    if (!s) return ''
-    return s.slice(0, 10)
+  function onYamlChange(nextYaml) {
+    setConfigYaml(nextYaml)
+    try {
+      const parsed = yaml.load(nextYaml)
+      setBuilderState(builderFromConfigObject(parsed || {}))
+    } catch {
+      // Preserve current builder state while YAML is invalid.
+    }
+  }
+
+  function fmtDate(value) {
+    if (!value) return ''
+    return value.slice(0, 10)
   }
 
   async function suggestKeywords() {
@@ -272,31 +631,31 @@ export default function App() {
   }
 
   function applyKeywords() {
-    try {
-      const parsed = yaml.load(configYaml)
-      if (!parsed.query) parsed.query = {}
-      if (!parsed.topics) parsed.topics = []
+    const combinedConcepts = dedupeByLabel([
+      ...(suggestedConfig?.broad_keywords || []).map((label) => ({
+        label,
+        source: 'manual',
+        mesh_id: null,
+        score: null,
+      })),
+      ...(suggestedConfig?.topic_terms || []).map((label) => ({
+        label,
+        source: 'manual',
+        mesh_id: null,
+        score: null,
+      })),
+    ])
 
-      parsed.query.broad_keywords = suggestedConfig.broad_keywords
+    updateBuilder((current) => ({
+      ...current,
+      researchQuestion: topicDescription.trim() || current.researchQuestion,
+      concepts: combinedConcepts.length > 0 ? combinedConcepts : current.concepts,
+    }))
 
-      const topicName = topicDescription.slice(0, 50)
-      if (parsed.topics.length === 0) {
-        parsed.topics.push({
-          name: topicName,
-          include_any: suggestedConfig.topic_terms,
-        })
-      } else {
-        parsed.topics[0].name = topicName
-        parsed.topics[0].include_any = suggestedConfig.topic_terms
-      }
-
-      setConfigYaml(yaml.dump(parsed, { indent: 2 }))
-      setShowSuggestModal(false)
-      setSuggestedConfig(null)
-      setTopicDescription('')
-    } catch (e) {
-      alert(`Failed to update config: ${e.message}`)
-    }
+    setConceptStatus({ tone: 'success', text: 'Suggested concepts ready. You can edit them before searching.' })
+    setShowSuggestModal(false)
+    setSuggestedConfig(null)
+    setTopicDescription('')
   }
 
   const canPrev = offset > 0
@@ -325,17 +684,17 @@ export default function App() {
               Semantic MeSH-powered researcher discovery for Health TechQuity outreach.
             </p>
             <p className="hero-description">
-              Build a topic-focused NIH search, expand terms thoughtfully, and review outreach-ready
-              principal investigator results in one calm workspace.
+              Ask a research question, generate grounded concepts, review them quickly, and launch an NIH
+              search without touching YAML unless you want extra control.
             </p>
             <div className="hero-metrics">
               <div className="hero-metric">
-                <span className="hero-metric-value">YAML</span>
-                <span className="hero-metric-label">Config-driven workflow</span>
+                <span className="hero-metric-value">Question</span>
+                <span className="hero-metric-label">Start with plain language</span>
               </div>
               <div className="hero-metric">
-                <span className="hero-metric-value">MeSH</span>
-                <span className="hero-metric-label">Lexical + semantic expansion</span>
+                <span className="hero-metric-value">Concepts</span>
+                <span className="hero-metric-label">MeSH-grounded when available</span>
               </div>
               <div className="hero-metric">
                 <span className="hero-metric-value">CSV</span>
@@ -353,77 +712,289 @@ export default function App() {
               </div>
               <p>{statusDescription}</p>
               <div className="hero-status-meta">
-                <span>Keyword expansion trace included</span>
-                <span>CSV export preserved</span>
+                <span>Search by question first</span>
+                <span>Advanced YAML still available</span>
               </div>
             </div>
           </div>
         </header>
 
         <div className="top-grid">
-          <section className="panel card yaml-card">
-            <div className="panel-header">
-              <div>
-                <p className="card-title">Search Configuration</p>
-                <h2>YAML editor</h2>
+          <div className="builder-column">
+            <section className="panel card builder-card">
+              <div className="panel-header">
+                <div>
+                  <p className="card-title">Search Builder</p>
+                  <h2>Start with a research question</h2>
+                </div>
+                <span className="builder-mode-pill">No YAML required</span>
               </div>
-              <span className={`yaml-status ${yamlValid ? 'valid' : 'invalid'}`}>
-                <span className="yaml-dot" />
-                {yamlValid ? 'Valid YAML' : 'Needs fixing'}
-              </span>
-            </div>
 
-            <p className="panel-description">
-              Tune broad NIH search terms, MeSH expansion, and local topic filters. The editor keeps
-              the full workflow transparent and reproducible.
-            </p>
+              <p className="panel-description">
+                Type a research topic, generate suggested concepts, adjust the concept chips if needed, and
+                then run the NIH search.
+              </p>
 
-            <div className="yaml-toolbar">
-              <label className="file-label">
-                Upload YAML
-                <input type="file" accept=".yaml,.yml" onChange={onUploadYaml} />
-              </label>
-              <button className="btn btn-soft" onClick={() => setShowSuggestModal(true)} type="button">
-                Suggest Keywords
-              </button>
-              <button className="btn btn-ghost" onClick={() => setConfigYaml(DEFAULT_YAML)} type="button">
-                Reset Example
-              </button>
-            </div>
-
-            <div className="editor-shell">
-              <div className="editor-toolbar">
-                <span className="editor-pill">config.example-inspired</span>
-                <span className="editor-hint">Stage 1 query + Stage 2 topic rules</span>
+              <div className="form-card question-card">
+                <label className="field-label">Research topic or question</label>
+                <textarea
+                  className="builder-textarea"
+                  value={builderState.researchQuestion}
+                  onChange={(e) =>
+                    updateBuilder((current) => ({
+                      ...current,
+                      researchQuestion: e.target.value,
+                    }))
+                  }
+                  placeholder="AI for diabetes care in underserved populations"
+                />
+                <div className="question-actions">
+                  <button className="btn btn-primary" type="button" onClick={generateConcepts} disabled={generatingConcepts}>
+                    {generatingConcepts ? (
+                      <>
+                        <span className="spinner spinner-light" />
+                        Generating Concepts
+                      </>
+                    ) : (
+                      'Generate Concepts'
+                    )}
+                  </button>
+                  <button
+                    className="btn btn-soft"
+                    type="button"
+                    onClick={() => setShowSuggestModal(true)}
+                  >
+                    Suggest Keywords
+                  </button>
+                </div>
               </div>
-              <textarea value={configYaml} onChange={(e) => setConfigYaml(e.target.value)} spellCheck={false} />
-            </div>
-          </section>
+
+              <div className="concept-panel">
+                <div className="panel-header compact">
+                  <div>
+                    <p className="card-title">Suggested Concepts</p>
+                    <h2>Review and edit before search</h2>
+                  </div>
+                  {selectedConceptLabels.length > 0 ? (
+                    <span className="concept-count-pill">{selectedConceptLabels.length} selected</span>
+                  ) : null}
+                </div>
+
+                <div className={`notice concept-notice concept-notice-${conceptStatus.tone}`}>
+                  {conceptStatus.text}
+                </div>
+
+                {builderState.concepts.length > 0 ? (
+                  <div className="selected-concepts-wrap">
+                    {builderState.concepts.map((concept) => (
+                      <span key={concept.label} className="concept-chip">
+                        <span className="concept-chip-label">{concept.label}</span>
+                        <span className="concept-chip-source">{conceptSourceLabel(concept.source)}</span>
+                        <button type="button" onClick={() => removeConcept(concept.label)} aria-label={`Remove ${concept.label}`}>
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="chips-empty chips-empty-large">
+                    No concepts yet. Generate suggestions from the question above or add your own manually.
+                  </div>
+                )}
+
+                <div className="manual-concept-row">
+                  <div className="chip-input-shell">
+                    <div className="chip-input-list">
+                      <input
+                        type="text"
+                        value={conceptInput}
+                        onChange={(e) => setConceptInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ',') {
+                            e.preventDefault()
+                            addManualConcept(conceptInput)
+                          }
+                        }}
+                        onBlur={() => addManualConcept(conceptInput)}
+                        placeholder="telemedicine, health disparities, artificial intelligence"
+                      />
+                    </div>
+                  </div>
+                  <button className="btn btn-secondary" type="button" onClick={() => addManualConcept(conceptInput)}>
+                    Add Concept
+                  </button>
+                </div>
+
+                <div className="concept-toolbar">
+                  <button className="btn btn-ghost" type="button" onClick={generateConcepts} disabled={generatingConcepts}>
+                    Regenerate Concepts
+                  </button>
+                  <button className="btn btn-ghost" type="button" onClick={clearAllConcepts}>
+                    Clear All
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="panel card advanced-card">
+              <button
+                className="advanced-toggle"
+                type="button"
+                onClick={() => setAdvancedOpen((current) => !current)}
+                aria-expanded={advancedOpen}
+              >
+                <div>
+                  <p className="card-title">Advanced Mode</p>
+                  <h2>Advanced Search Options</h2>
+                </div>
+                <span className={`advanced-chevron ${advancedOpen ? 'open' : ''}`}>⌄</span>
+              </button>
+
+              <p className="panel-description advanced-description">
+                Adjust NIH matching behavior, fiscal years, expansion settings, and the raw YAML only if you need
+                more control.
+              </p>
+
+              {advancedOpen ? (
+                <div className="advanced-content">
+                  <div className="form-grid two-up">
+                    <div className="form-card">
+                      <label className="field-label">Where should NIH search?</label>
+                      <select
+                        value={builderState.textSearchField}
+                        onChange={(e) =>
+                          updateBuilder((current) => ({
+                            ...current,
+                            textSearchField: e.target.value,
+                          }))
+                        }
+                      >
+                        {SEARCH_FIELD_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-card">
+                      <label className="field-label">Match style</label>
+                      <select
+                        value={builderState.textSearchOperator}
+                        onChange={(e) =>
+                          updateBuilder((current) => ({
+                            ...current,
+                            textSearchOperator: e.target.value,
+                          }))
+                        }
+                      >
+                        {OPERATOR_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-card">
+                      <label className="field-label">Fiscal years</label>
+                      <input
+                        type="text"
+                        value={builderState.fiscalYearsText}
+                        onChange={(e) =>
+                          updateBuilder((current) => ({
+                            ...current,
+                            fiscalYearsText: e.target.value,
+                          }))
+                        }
+                        placeholder="2024, 2025"
+                      />
+                    </div>
+
+                    <div className="form-card">
+                      <label className="field-label">Max pages</label>
+                      <input type="number" min={1} value={maxPages} onChange={(e) => setMaxPages(Number(e.target.value))} />
+                    </div>
+                  </div>
+
+                  <div className="toggle-stack">
+                    <ToggleField
+                      label="Expand using medical terminology"
+                      description="Adds official medical synonyms and related National Library of Medicine terms."
+                      checked={builderState.meshExpansionEnabled}
+                      onChange={(e) =>
+                        updateBuilder((current) => ({
+                          ...current,
+                          meshExpansionEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    <ToggleField
+                      label="Find conceptually similar topics"
+                      description="Uses semantic matching over MeSH concepts when a local index is available."
+                      checked={builderState.semanticExpansionEnabled}
+                      onChange={(e) =>
+                        updateBuilder((current) => ({
+                          ...current,
+                          semanticExpansionEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                    <ToggleField
+                      label="AI-assisted query improvement"
+                      description="Suggests extra search phrasing using a language model when configured."
+                      checked={builderState.aiExpansionEnabled}
+                      onChange={(e) =>
+                        updateBuilder((current) => ({
+                          ...current,
+                          aiExpansionEnabled: e.target.checked,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div className="yaml-toolbar">
+                    <label className="file-label">
+                      Upload YAML
+                      <input type="file" accept=".yaml,.yml" onChange={onUploadYaml} />
+                    </label>
+                    <button className="btn btn-ghost" onClick={() => {
+                      setBuilderState(initialBuilder)
+                      setConfigYaml(DEFAULT_YAML)
+                      setConceptStatus({ tone: 'idle', text: 'Builder reset to the example configuration.' })
+                    }} type="button">
+                      Reset Example
+                    </button>
+                    <span className={`yaml-status ${yamlValid ? 'valid' : 'invalid'}`}>
+                      <span className="yaml-dot" />
+                      {yamlValid ? 'Valid YAML' : 'Needs fixing'}
+                    </span>
+                  </div>
+
+                  <div className="editor-shell">
+                    <div className="editor-toolbar">
+                      <span className="editor-pill">Backend config preview</span>
+                      <span className="editor-hint">If you edit YAML here, it becomes the source of truth for this run.</span>
+                    </div>
+                    <textarea value={configYaml} onChange={(e) => onYamlChange(e.target.value)} spellCheck={false} />
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </div>
 
           <aside className="run-panel">
             <section className="panel card">
               <div className="panel-header">
                 <div>
-                  <p className="card-title">Run Settings</p>
-                  <h2>Launch a search</h2>
+                  <p className="card-title">Actions</p>
+                  <h2>Run and export</h2>
                 </div>
                 <StatusPill status={status} busy={busy} />
               </div>
 
               <p className="panel-description">
-                Start with a modest page count for faster iteration, then scale up once the topic
-                rules look right.
-              </p>
-
-              <label className="field-label">Max pages (500 projects per page)</label>
-              <input
-                type="number"
-                min={1}
-                value={maxPages}
-                onChange={(e) => setMaxPages(Number(e.target.value))}
-              />
-              <p className="field-hint">
-                NIH rate-limit is about one request per second. Small pilot runs are easiest to inspect.
+                When the concept chips look right, start the NIH search. You can export CSV after the run completes.
               </p>
 
               <div className="action-stack">
@@ -438,19 +1009,11 @@ export default function App() {
                   )}
                 </button>
 
-                <button
-                  className="btn btn-accent"
-                  onClick={() => setShowSuggestModal(true)}
-                  type="button"
-                >
+                <button className="btn btn-accent" onClick={() => setShowSuggestModal(true)} type="button">
                   Suggest Keywords
                 </button>
 
-                <button
-                  className="btn btn-secondary"
-                  onClick={downloadCsv}
-                  disabled={!runId || status !== 'completed'}
-                >
+                <button className="btn btn-secondary" onClick={downloadCsv} disabled={!runId || status !== 'completed'}>
                   Export CSV
                 </button>
               </div>
@@ -498,7 +1061,7 @@ export default function App() {
                 <div className="trace-layout">
                   <TraceGroup
                     title="Original keywords"
-                    subtitle="Starting broad terms from your YAML configuration."
+                    subtitle="Starting broad terms from your configuration."
                     terms={expansionTrace.original_keywords}
                     variant="neutral"
                   />
@@ -597,10 +1160,7 @@ export default function App() {
                       const c = topicColor(name)
                       return (
                         <div key={name} className="topic-summary-row">
-                          <span
-                            className="topic-tag"
-                            style={{ background: c.bg, color: c.color, borderColor: c.border }}
-                          >
+                          <span className="topic-tag" style={{ background: c.bg, color: c.color, borderColor: c.border }}>
                             {name}
                           </span>
                           <span className="topic-summary-count">{count} projects</span>
@@ -620,8 +1180,7 @@ export default function App() {
               <p className="card-title">Search Results</p>
               <h2>Outreach-ready PI results</h2>
               <p>
-                Review matched investigators, institutions, topic assignments, and project context
-                before exporting.
+                Review matched investigators, institutions, topic assignments, and project context before exporting.
               </p>
             </div>
 
@@ -670,8 +1229,8 @@ export default function App() {
                           </div>
                           <div className="empty-state-text">
                             {status === 'completed'
-                              ? 'No results matched the current topic rules. Try broadening Stage 1 keywords or relaxing local filters.'
-                              : 'Refine the YAML configuration above, then start a search to populate the table.'}
+                              ? 'No results matched the current topic rules. Try editing the concepts or relaxing local filters.'
+                              : 'Generate concepts from a research question above, then start a search to populate this table.'}
                           </div>
                         </div>
                       </td>
@@ -782,11 +1341,7 @@ export default function App() {
                               r.matched_topics.map((t, i) => {
                                 const c = topicColor(t)
                                 return (
-                                  <span
-                                    key={i}
-                                    className="topic-tag"
-                                    style={{ background: c.bg, color: c.color, borderColor: c.border }}
-                                  >
+                                  <span key={i} className="topic-tag" style={{ background: c.bg, color: c.color, borderColor: c.border }}>
                                     {t}
                                   </span>
                                 )
@@ -819,7 +1374,7 @@ export default function App() {
           {total > 0 ? (
             <div className="results-footer">
               <div className="results-footnote">
-                Keep Stage 1 broad and use local topic rules to sharpen relevance before export.
+                Broad concept chips improve recall; local filtering and traces keep the result set explainable.
               </div>
               <div className="pagination">
                 <span className="page-info">
@@ -837,7 +1392,7 @@ export default function App() {
         </section>
 
         <p className="footer-tip">
-          <strong>Tip:</strong> Broad NIH terms improve recall, while topic rules and MeSH traces keep the final list explainable.
+          <strong>Tip:</strong> Use Generate Concepts first, then remove or add chips until the search intent feels right.
         </p>
 
         {showSuggestModal ? (
@@ -861,16 +1416,12 @@ export default function App() {
               <textarea
                 value={topicDescription}
                 onChange={(e) => setTopicDescription(e.target.value)}
-                placeholder="e.g., AI and machine learning applications in reducing health disparities"
+                placeholder="AI for diabetes care in underserved populations"
                 className="modal-textarea"
               />
 
               <div className="modal-actions">
-                <button
-                  className="btn btn-primary"
-                  onClick={suggestKeywords}
-                  disabled={!topicDescription.trim() || suggestingKeywords}
-                >
+                <button className="btn btn-primary" onClick={suggestKeywords} disabled={!topicDescription.trim() || suggestingKeywords}>
                   {suggestingKeywords ? 'Generating' : 'Generate Keywords'}
                 </button>
                 <button className="btn btn-ghost" onClick={() => setShowSuggestModal(false)} type="button">
@@ -895,7 +1446,7 @@ export default function App() {
                   ) : null}
 
                   <button className="btn btn-primary" onClick={applyKeywords}>
-                    Apply to Config
+                    Apply to Search Builder
                   </button>
                 </div>
               ) : null}

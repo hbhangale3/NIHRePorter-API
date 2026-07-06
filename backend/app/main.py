@@ -6,6 +6,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from .concept_suggester import ConceptSuggester
 from .csv_export import rows_to_csv_bytes
 from .models import RunRequest, RunStatus
 from .run_store import run_store
@@ -135,3 +136,14 @@ def suggest_keywords(req: KeywordSuggestionRequest) -> dict[str, Any]:
         max_topic_terms=req.max_topic_terms
     )
     return config
+
+
+class ConceptSuggestionRequest(BaseModel):
+    question: str
+    top_k: int = 8
+
+
+@app.post("/api/concepts/suggest")
+def suggest_concepts(req: ConceptSuggestionRequest) -> dict[str, Any]:
+    suggester = ConceptSuggester()
+    return suggester.suggest(req.question, top_k=req.top_k)

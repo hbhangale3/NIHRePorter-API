@@ -26,6 +26,17 @@ POST `/api/runs` accepts:
 - `config_yaml` (string)
 - `max_pages` (int|null) optional interactive safety limit for pagination
 
+POST `/api/concepts/suggest` accepts:
+
+- `question` (string)
+- `top_k` (int, optional)
+
+The frontend now defaults to a research-question workflow:
+
+`Research question → Generate Concepts → Review concept chips → Start Search`
+
+Suggested concepts are MeSH-grounded when the semantic index is available, fall back to local MeSH lookup when possible, and otherwise degrade to simple local phrase extraction. Advanced YAML remains available for power users.
+
 ## MeSH Concept Expansion
 
 The backend now supports an optional `query.mesh_expansion` block that expands `broad_keywords` with NLM MeSH terminology before the existing NIH RePORTER search.
@@ -69,6 +80,10 @@ From the `backend/` directory:
 `python scripts/build_mesh_kb.py`
 
 `python scripts/build_mesh_embeddings.py --limit 1000`
+
+For a full resumable Codespaces-safe build:
+
+`python scripts/build_mesh_embeddings.py --batch-size 32 --checkpoint-every 25 --resume`
 
 `python scripts/query_mesh_semantic.py "AI for diabetes in underserved populations" --top-k 10`
 

@@ -143,6 +143,12 @@ Open the URL Vite prints (typically **http://localhost:5173**).
 
 > The Vite dev server proxies all `/api/*` requests to the FastAPI backend at `:8000`, so no CORS configuration is needed during development.
 
+The default frontend workflow now supports plain-language search setup:
+
+`Research question → Generate Concepts → Review concept chips → Start Search`
+
+Advanced YAML remains available for power users, but non-technical users no longer need to write YAML or keywords manually to start.
+
 ---
 
 ## Configuration (YAML)
@@ -237,6 +243,7 @@ A project can match multiple topics — the `matched_topics` field records which
 | `GET` | `/api/runs/{run_id}` | Poll run status, MeSH trace, and keyword expansions |
 | `GET` | `/api/runs/{run_id}/results` | Paginated results (`offset`, `limit`) |
 | `GET` | `/api/runs/{run_id}/export.csv` | Download full CSV |
+| `POST` | `/api/concepts/suggest` | Suggest MeSH-grounded concepts from a research question |
 | `POST` | `/api/suggest-keywords` | AI topic → config suggestion |
 
 ### POST `/api/runs` payload
@@ -305,11 +312,14 @@ Lexical MeSH expansion uses MeSH synonyms and hierarchy. Semantic MeSH expansion
 
 Semantic expansion is optional. It requires prebuilt embedding artifacts and does not download models or build embeddings during a normal NIH RePORTER run.
 
+The frontend concept generator uses MeSH-grounded suggestions when the semantic index is available, falls back to local MeSH lookup when possible, and finally falls back to simple local phrase extraction so the UI stays responsive.
+
 Build and inspect the semantic index locally:
 
 ```bash
 cd backend
 python scripts/build_mesh_embeddings.py --limit 1000
+python scripts/build_mesh_embeddings.py --batch-size 32 --checkpoint-every 25 --resume
 python scripts/query_mesh_semantic.py "AI for diabetes in underserved populations" --top-k 10
 ```
 
