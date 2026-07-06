@@ -57,3 +57,19 @@ Raw XML files are stored in `backend/knowledge/mesh/`. The rebuild step writes t
 - `mesh_descriptors.json`
 - `mesh_graph.json`
 - `mesh_lookup.pkl`
+
+## Semantic MeSH Retrieval
+
+Phase 2 adds a local semantic retrieval layer over the processed MeSH descriptors without changing the NIH RePORTER pipeline yet.
+
+From the `backend/` directory:
+
+`python scripts/download_mesh_data.py`
+
+`python scripts/build_mesh_kb.py`
+
+`python scripts/build_mesh_embeddings.py --limit 1000`
+
+`python scripts/query_mesh_semantic.py "AI for diabetes in underserved populations" --top-k 10`
+
+The current default embedding model is `sentence-transformers/all-MiniLM-L6-v2`, which is lightweight enough for Codespaces and fast iteration. This phase does not use the PubMed corpus directly; it provides semantic matching over the current MeSH descriptor metadata only. Later phases can swap in more biomedical-specific embedding models such as PubMedBERT if we decide the extra weight is worth it.
