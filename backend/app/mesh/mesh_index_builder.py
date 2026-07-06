@@ -25,9 +25,20 @@ class MeshIndexBuilder:
         processed_dir = Path(processed_dir)
         processed_dir.mkdir(parents=True, exist_ok=True)
 
-        descriptors = self.parser.parse_descriptors(mesh_dir / "desc2026.xml")
-        qualifiers = self.parser.parse_qualifiers(mesh_dir / "qual2026.xml")
-        supplementary_records = self.parser.parse_supplementary_records(mesh_dir / "supp2026.xml")
+        descriptor_path = mesh_dir / "desc2026.xml"
+        qualifier_path = mesh_dir / "qual2026.xml"
+        supplementary_path = mesh_dir / "supp2026.xml"
+
+        if not descriptor_path.exists():
+            raise FileNotFoundError(f"Required MeSH descriptor file not found: {descriptor_path}")
+
+        descriptors = self.parser.parse_descriptors(descriptor_path)
+        qualifiers = self.parser.parse_qualifiers(qualifier_path) if qualifier_path.exists() else {}
+        supplementary_records = (
+            self.parser.parse_supplementary_records(supplementary_path)
+            if supplementary_path.exists()
+            else {}
+        )
 
         graph = self._build_graph(descriptors)
         lookup = self._build_lookup(descriptors, supplementary_records)

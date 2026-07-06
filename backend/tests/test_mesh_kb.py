@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import importlib.util
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -180,6 +183,20 @@ class MeshKnowledgeBaseTests(unittest.TestCase):
         self.assertIn("Q000001", payload["qualifiers"])
         self.assertIn("C000001", payload["supplementary_records"])
 
+    def test_builder_supports_missing_optional_mesh_files(self) -> None:
+        (self.mesh_dir / "qual2026.xml").unlink()
+        (self.mesh_dir / "supp2026.xml").unlink()
+
+        artifacts = MeshIndexBuilder().build(self.mesh_dir, self.processed_dir)
+
+        self.assertEqual(len(artifacts["descriptors"]), 3)
+        self.assertEqual(artifacts["qualifiers"], {})
+        self.assertEqual(artifacts["supplementary_records"], {})
+
+        payload = json.loads((self.processed_dir / "mesh_descriptors.json").read_text(encoding="utf-8"))
+        self.assertEqual(payload["qualifiers"], {})
+        self.assertEqual(payload["supplementary_records"], {})
+
     def test_loader_supports_exact_and_graph_lookup(self) -> None:
         kb = MeshKnowledgeBase(mesh_dir=self.mesh_dir, processed_dir=self.processed_dir)
 
@@ -221,3 +238,41 @@ class MeshKnowledgeBaseTests(unittest.TestCase):
         results = kb.search("telehealth")
         self.assertGreaterEqual(len(results), 1)
         self.assertEqual(results[0].preferred_name, "Telemedicine")
+
+    def test_build_script_reports_partial_build_and_writes_outputs(self) -> None:
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "build_mesh_kb.py"
+        spec = importlib.util.spec_from_file_location("build_mesh_kb", script_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        backend_dir = self.root / "backend"
+        mesh_dir = backend_dir / "knowledge" / "mesh"
+        processed_dir = backend_dir / "knowledge" / "processed"
+        mesh_dir.mkdir(parents=True, exist_ok=True)
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        (mesh_dir / "desc2026.xml").write_text(DESCRIPTOR_XML, encoding="utf-8")
+        (mesh_dir / "pa2026.xml").write_text("<PharmacologicalActionSet />", encoding="utf-8")
+
+        module.BACKEND_DIR = backend_dir
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = module.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("desc2026.xml: found", stdout.getvalue())
+        self.assertIn("qual2026.xml: missing", stdout.getvalue())
+        self.assertIn("supp2026.xml: missing", stdout.getvalue())
+        self.assertIn("pa2026.xml: found", stdout.getvalue())
+        self.assertIn("descriptor count: 3", stdout.getvalue())
+        self.assertIn("qualifier count: 0", stdout.getvalue())
+        self.assertIn("supplementary record count: 0", stdout.getvalue())
+        self.assertIn("pa2026.xml is present but not yet processed", stdout.getvalue())
+        self.assertIn("continuing with descriptors only", stderr.getvalue())
+        self.assertIn("continuing without supplementary records", stderr.getvalue())
+        self.assertTrue((processed_dir / "mesh_descriptors.json").exists())
+        self.assertTrue((processed_dir / "mesh_graph.json").exists())
+        self.assertTrue((processed_dir / "mesh_lookup.pkl").exists())
