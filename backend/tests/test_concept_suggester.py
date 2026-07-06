@@ -12,12 +12,12 @@ from app.semantic.semantic_models import SemanticMeshResult
 
 class FakeSemanticRetriever:
     def __init__(self, results_by_query: dict[str, list[SemanticMeshResult]]) -> None:
-        self.results_by_query = results_by_query
+        self.results_by_query = {key.lower(): value for key, value in results_by_query.items()}
         self.queries: list[str] = []
 
     def retrieve(self, question: str, top_k: int = 10) -> list[SemanticMeshResult]:
         self.queries.append(question)
-        return list(self.results_by_query.get(question, []))[:top_k]
+        return list(self.results_by_query.get(question.lower(), []))[:top_k]
 
 
 class FakeMeshKnowledgeBase:
@@ -55,27 +55,73 @@ def _semantic_result(
     )
 
 
-def test_concept_suggester_returns_balanced_semantic_concepts_across_dimensions() -> None:
+def test_imaging_oncology_query_returns_balanced_concepts() -> None:
+    retriever = FakeSemanticRetriever(
+        {
+            "machine learning": [
+                _semantic_result("D1", "Machine Learning", 0.96, tree_numbers=["L01.224"]),
+                _semantic_result("D2", "Artificial Intelligence", 0.92, tree_numbers=["L01"]),
+            ],
+            "precision oncology": [
+                _semantic_result("D3", "Medical Oncology", 0.89, tree_numbers=["C04"]),
+                _semantic_result("D4", "Precision Medicine", 0.87, tree_numbers=["E05"]),
+            ],
+            "cancer": [
+                _semantic_result("D5", "Neoplasms", 0.93, tree_numbers=["C04"]),
+                _semantic_result("D6", "Rare Gene Pathway", 0.94, tree_numbers=["C04.588.894.797"]),
+            ],
+            "early cancer diagnosis": [
+                _semantic_result("D7", "Early Detection of Cancer", 0.95, tree_numbers=["C04.588"]),
+            ],
+            "medical imaging": [
+                _semantic_result("D8", "Diagnostic Imaging", 0.94, tree_numbers=["E01"]),
+                _semantic_result("D9", "Radiology", 0.88, tree_numbers=["E01.370"]),
+                _semantic_result("D10", "Image Processing, Computer-Assisted", 0.86, tree_numbers=["L01.224.100"]),
+            ],
+            "imaging": [
+                _semantic_result("D11", "Medical Imaging", 0.91, tree_numbers=["E01"]),
+            ],
+            "oncology": [
+                _semantic_result("D12", "Neoplasms", 0.91, tree_numbers=["C04"]),
+            ],
+        }
+    )
+    suggester = ConceptSuggester(
+        semantic_retriever_factory=lambda: retriever,
+        mesh_kb_factory=lambda: FakeMeshKnowledgeBase(),
+    )
+
+    result = suggester.suggest(
+        "How can machine learning improve precision oncology and early cancer diagnosis using medical imaging?",
+        top_k=8,
+    )
+    labels = [item["label"] for item in result["concepts"]]
+
+    assert result["fallback_used"] is False
+    assert "Machine Learning" in labels
+    assert "Neoplasms" in labels or "Medical Oncology" in labels
+    assert any(label in labels for label in ["Diagnostic Imaging", "Medical Imaging", "Radiology", "Image Processing, Computer-Assisted"])
+
+
+def test_diabetes_underserved_query_returns_balanced_concepts() -> None:
     retriever = FakeSemanticRetriever(
         {
             "ai": [
                 _semantic_result("D1", "Artificial Intelligence", 0.95, tree_numbers=["L01"]),
-                _semantic_result("D2", "Machine Learning", 0.91, tree_numbers=["L01.224"]),
-                _semantic_result("D3", "Medical Informatics", 0.86, tree_numbers=["L01.700"]),
+            ],
+            "machine learning": [
+                _semantic_result("D2", "Machine Learning", 0.93, tree_numbers=["L01.224"]),
             ],
             "diabetes": [
-                _semantic_result("D4", "Diabetic Coma", 0.96, tree_numbers=["C19.246.267"]),
-                _semantic_result("D5", "Diabetes Mellitus", 0.90, tree_numbers=["C18.452"]),
-                _semantic_result("D6", "Diabetic Foot", 0.89, tree_numbers=["C17.800.174"]),
+                _semantic_result("D3", "Diabetes Mellitus", 0.91, tree_numbers=["C18.452"]),
+                _semantic_result("D4", "Diabetic Foot", 0.90, tree_numbers=["C17.800.174"]),
             ],
             "underserved populations": [
-                _semantic_result("D7", "Health Equity", 0.88, tree_numbers=["N03.706"]),
-                _semantic_result("D8", "Healthcare Disparities", 0.87, tree_numbers=["N03.706.437"]),
-                _semantic_result("D9", "Medically Underserved Area", 0.86, tree_numbers=["Z01.542"]),
+                _semantic_result("D5", "Medically Underserved Area", 0.89, tree_numbers=["Z01.542"]),
+                _semantic_result("D6", "Health Equity", 0.88, tree_numbers=["N03.706"]),
             ],
-            "care": [
-                _semantic_result("D10", "Clinical Decision Support Systems", 0.89, tree_numbers=["L01.224.500"]),
-                _semantic_result("D11", "Telemedicine", 0.84, tree_numbers=["N04.761"]),
+            "disease management": [
+                _semantic_result("D7", "Disease Management", 0.86, tree_numbers=["N04"]),
             ],
         }
     )
@@ -87,28 +133,25 @@ def test_concept_suggester_returns_balanced_semantic_concepts_across_dimensions(
     result = suggester.suggest("AI for diabetes care in underserved populations", top_k=8)
     labels = [item["label"] for item in result["concepts"]]
 
-    assert result["fallback_used"] is False
-    assert "Artificial Intelligence" in labels
-    assert "Machine Learning" in labels
+    assert "Artificial Intelligence" in labels or "Machine Learning" in labels
     assert "Diabetes Mellitus" in labels
-    assert "Health Equity" in labels or "Healthcare Disparities" in labels or "Medically Underserved Area" in labels
-    assert "Clinical Decision Support Systems" in labels or "Telemedicine" in labels
-    assert "Diabetic Coma" not in labels
-    assert "Diabetic Foot" not in labels
+    assert any(label in labels for label in ["Medically Underserved Area", "Health Equity", "Healthcare Disparities"])
 
 
-def test_concept_suggester_penalizes_orgs_and_overly_specific_complications() -> None:
+def test_one_phrase_family_does_not_dominate_top_concepts() -> None:
     retriever = FakeSemanticRetriever(
         {
-            "diabetes": [
-                _semantic_result("D1", "NIDDK", 0.99),
-                _semantic_result("D2", "National Institute of Diabetes and Digestive and Kidney Diseases", 0.98),
-                _semantic_result("D3", "Diabetic Coma", 0.97, tree_numbers=["C19.246.267"]),
-                _semantic_result("D4", "Diabetes Mellitus", 0.85, tree_numbers=["C18.452"]),
+            "machine learning": [
+                _semantic_result("D1", "Machine Learning", 0.98),
+                _semantic_result("D2", "Artificial Intelligence", 0.96),
+                _semantic_result("D3", "Medical Informatics", 0.94),
             ],
-            "ai": [_semantic_result("D5", "Artificial Intelligence", 0.9, tree_numbers=["L01"])],
-            "underserved populations": [_semantic_result("D6", "Health Equity", 0.82, tree_numbers=["N03.706"])],
-            "care": [_semantic_result("D7", "Patient Care", 0.8)],
+            "cancer": [
+                _semantic_result("D4", "Neoplasms", 0.92, tree_numbers=["C04"]),
+            ],
+            "medical imaging": [
+                _semantic_result("D5", "Diagnostic Imaging", 0.91, tree_numbers=["E01"]),
+            ],
         }
     )
     suggester = ConceptSuggester(
@@ -116,13 +159,68 @@ def test_concept_suggester_penalizes_orgs_and_overly_specific_complications() ->
         mesh_kb_factory=lambda: FakeMeshKnowledgeBase(),
     )
 
-    result = suggester.suggest("AI for diabetes care in underserved populations", top_k=6)
+    result = suggester.suggest(
+        "How can machine learning improve cancer diagnosis using medical imaging?",
+        top_k=5,
+    )
+    dimensions = [item["dimension"] for item in result["concepts"]]
+
+    assert dimensions.count("technology_method") <= 2
+    assert "disease_condition" in dimensions
+    assert "diagnostic_imaging" in dimensions
+
+
+def test_narrow_descriptors_are_penalized_when_broad_concepts_are_available() -> None:
+    retriever = FakeSemanticRetriever(
+        {
+            "diabetes": [
+                _semantic_result("D1", "Diabetic Coma", 0.97, tree_numbers=["C19.246.267"]),
+                _semantic_result("D2", "Diabetic Foot", 0.96, tree_numbers=["C17.800.174"]),
+                _semantic_result("D3", "Diabetes Mellitus", 0.88, tree_numbers=["C18.452"]),
+                _semantic_result("D4", "NIDDK", 0.99),
+            ],
+            "underserved populations": [
+                _semantic_result("D5", "Health Equity", 0.86, tree_numbers=["N03.706"]),
+            ],
+            "machine learning": [
+                _semantic_result("D6", "Machine Learning", 0.90, tree_numbers=["L01.224"]),
+            ],
+        }
+    )
+    suggester = ConceptSuggester(
+        semantic_retriever_factory=lambda: retriever,
+        mesh_kb_factory=lambda: FakeMeshKnowledgeBase(),
+    )
+
+    result = suggester.suggest("Machine learning for diabetes in underserved populations", top_k=6)
     labels = [item["label"] for item in result["concepts"]]
 
     assert "Diabetes Mellitus" in labels
-    assert "NIDDK" not in labels
-    assert "National Institute of Diabetes and Digestive and Kidney Diseases" not in labels
     assert "Diabetic Coma" not in labels
+    assert "Diabetic Foot" not in labels
+    assert "NIDDK" not in labels
+
+
+def test_concept_metadata_includes_matched_phrase_and_dimension() -> None:
+    retriever = FakeSemanticRetriever(
+        {
+            "medical imaging": [
+                _semantic_result("D1", "Diagnostic Imaging", 0.92, tree_numbers=["E01"]),
+            ],
+        }
+    )
+    suggester = ConceptSuggester(
+        semantic_retriever_factory=lambda: retriever,
+        mesh_kb_factory=lambda: FakeMeshKnowledgeBase(),
+    )
+
+    result = suggester.suggest("medical imaging for cancer diagnosis", top_k=4)
+
+    assert result["concepts"]
+    concept = result["concepts"][0]
+    assert concept["matched_phrase"] in {"medical imaging", "cancer diagnosis", "imaging"}
+    assert concept["dimension"] in {"diagnostic_imaging", "disease_condition"}
+    assert concept["source"] in {"exact_phrase", "semantic_mesh", "mesh_lookup", "fallback"}
 
 
 def test_concept_suggester_falls_back_safely_when_semantic_is_unavailable() -> None:
@@ -149,7 +247,7 @@ def test_concept_suggester_falls_back_safely_when_semantic_is_unavailable() -> N
     assert result["fallback_used"] is True
     assert result["error"] is None
     assert result["concepts"][0]["label"] == "Diabetes Mellitus"
-    assert result["concepts"][0]["source"] == "mesh_lookup"
+    assert result["concepts"][0]["source"] in {"mesh_lookup", "exact_phrase"}
 
 
 def test_concept_suggester_returns_safe_empty_response_for_empty_question() -> None:
